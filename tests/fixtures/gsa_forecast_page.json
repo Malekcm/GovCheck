@@ -1,0 +1,544 @@
+{
+ "listing": {
+  "data": [
+   {
+    "pid": "52133",
+    "nid": "52133",
+    "rank": {
+     "nid": "52133",
+     "views": {
+      "value": 1,
+      "render": "1",
+      "display_tooltip": true
+     },
+     "updated": {
+      "value": 1790875240,
+      "render": "10/01/2026",
+      "display_tooltip": false
+     },
+     "downloads": {
+      "value": 0,
+      "render": "0",
+      "display_tooltip": true
+     },
+     "last_viewed": {
+      "value": "1790876295",
+      "render": "10/01/2026",
+      "display_tooltip": false
+     },
+     "poll_tracker": {
+      "like": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      },
+      "dislike": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      }
+     }
+    },
+    "render": {
+     "nid": "52133",
+     "title": "NCTC Guest Services Contract",
+     "body": "<p>U.S. Fish and Wildlife Service: Contract for NCTC Guest Services</p>\n",
+     "field_result_id": "Department of the Interior",
+     "field_funding_organization": "U.S. Fish and Wildlife Service",
+     "field_place_of_performance": "<p class=\"address\" translate=\"no\"><span class=\"locality\">Shepherdstown</span>, <span class=\"administrative-area\">WV</span><br>\n<span class=\"country\">United States</span></p>",
+     "field_source_listing_id": "FWS2026001467",
+     "field_award_status": "Exercise of Option",
+     "field_contract_type": "To Be Determined",
+     "field_estimated_award_fy": "2027",
+     "field_estimated_contract_v_max": "$5M - $9.9M",
+     "field_naics_code": "<div id=\"taxonomy-term-1478\" class=\"taxonomy-term vocabulary-naics-code\">\n  \n      <h2><a href=\"/taxonomy/term/1478\">\n            <div class=\"field field--name-name field--type-string field--label-hidden field__item\">561210</div>\n      </a></h2>\n    \n  <div class=\"content\">\n      <div class=\"layout layout--onecol\">\n    <div  class=\"layout__region layout__region--content\">\n      <div class=\"block block-layout-builder block-field-blocktaxonomy-termnaics-codefield-label\">\n  \n    \n      \n            <div class=\"field field--name-field-label field--type-string field--label-hidden field__item\">Facilities Support Services</div>\n      \n  </div>\n\n    </div>\n  </div>\n\n  </div>\n</div>\n",
+     "field_acquisition_strategy": "To Be Determined",
+     "field_period_of_performance": "<time datetime=\"2026-05-31T12:00:00Z\" class=\"datetime\">05/31/2026</time>\n",
+     "created": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n",
+     "changed": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n"
+    },
+    "values": {
+     "nid": "52133",
+     "title": "NCTC Guest Services Contract",
+     "body": "U.S. Fish and Wildlife Service: Contract for NCTC Guest Services",
+     "field_result_id": "4",
+     "field_funding_organization": "397",
+     "field_place_of_performance": [
+      "US"
+     ],
+     "field_source_listing_id": "FWS2026001467",
+     "field_award_status": "471",
+     "field_contract_type": "495",
+     "field_estimated_award_fy": "2027",
+     "field_estimated_contract_v_max": "4236",
+     "field_naics_code": [
+      "1478"
+     ],
+     "field_acquisition_strategy": [
+      "4749"
+     ],
+     "field_period_of_performance": "2026-05-31",
+     "created": "1790875240",
+     "changed": "1790875240"
+    },
+    "type": "node",
+    "tid": null,
+    "alias": "/forecast"
+   },
+   {
+    "pid": "52134",
+    "nid": "52134",
+    "rank": {
+     "nid": "52134",
+     "views": {
+      "value": 0,
+      "render": "0",
+      "display_tooltip": true
+     },
+     "updated": {
+      "value": 1790875240,
+      "render": "10/01/2026",
+      "display_tooltip": false
+     },
+     "downloads": {
+      "value": 0,
+      "render": "0",
+      "display_tooltip": true
+     },
+     "last_viewed": false,
+     "poll_tracker": {
+      "like": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      },
+      "dislike": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      }
+     }
+    },
+    "render": {
+     "nid": "52134",
+     "title": "Patuxent Research Refuge Co-Location Rehabilitation",
+     "body": "<p>Rehabilitate Patuxent Visitor Center into a Headquarters for multiple Federal agencies</p>\n",
+     "field_result_id": "Department of the Interior",
+     "field_funding_organization": "U.S. Fish and Wildlife Service",
+     "field_place_of_performance": "<p class=\"address\" translate=\"no\"><span class=\"locality\">Laurel</span>, <span class=\"administrative-area\">MD</span><br>\n<span class=\"country\">United States</span></p>",
+     "field_source_listing_id": "FWS2026001468",
+     "field_award_status": "Acquisition Planning",
+     "field_contract_type": "To Be Determined",
+     "field_estimated_award_fy": "2028",
+     "field_estimated_contract_v_max": "$2M - $4.9M",
+     "field_naics_code": "<div id=\"taxonomy-term-788\" class=\"taxonomy-term vocabulary-naics-code\">\n  \n      <h2><a href=\"/taxonomy/term/788\">\n            <div class=\"field field--name-name field--type-string field--label-hidden field__item\">237990</div>\n      </a></h2>\n    \n  <div class=\"content\">\n      <div class=\"layout layout--onecol\">\n    <div  class=\"layout__region layout__region--content\">\n      <div class=\"block block-layout-builder block-field-blocktaxonomy-termnaics-codefield-label\">\n  \n    \n      \n            <div class=\"field field--name-field-label field--type-string field--label-hidden field__item\">Other Heavy and Civil Engineering Construction</div>\n      \n  </div>\n\n    </div>\n  </div>\n\n  </div>\n</div>\n",
+     "field_acquisition_strategy": "To Be Determined",
+     "field_period_of_performance": "<time datetime=\"2026-05-31T12:00:00Z\" class=\"datetime\">05/31/2026</time>\n",
+     "created": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n",
+     "changed": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n"
+    },
+    "values": {
+     "nid": "52134",
+     "title": "Patuxent Research Refuge Co-Location Rehabilitation",
+     "body": "Rehabilitate Patuxent Visitor Center into a Headquarters for multiple Federal agencies",
+     "field_result_id": "4",
+     "field_funding_organization": "397",
+     "field_place_of_performance": [
+      "US"
+     ],
+     "field_source_listing_id": "FWS2026001468",
+     "field_award_status": "473",
+     "field_contract_type": "495",
+     "field_estimated_award_fy": "2028",
+     "field_estimated_contract_v_max": "4235",
+     "field_naics_code": [
+      "788"
+     ],
+     "field_acquisition_strategy": [
+      "4749"
+     ],
+     "field_period_of_performance": "2026-05-31",
+     "created": "1790875240",
+     "changed": "1790875240"
+    },
+    "type": "node",
+    "tid": null,
+    "alias": "/forecast"
+   },
+   {
+    "pid": "52135",
+    "nid": "52135",
+    "rank": {
+     "nid": "52135",
+     "views": {
+      "value": 0,
+      "render": "0",
+      "display_tooltip": true
+     },
+     "updated": {
+      "value": 1790875240,
+      "render": "10/01/2026",
+      "display_tooltip": false
+     },
+     "downloads": {
+      "value": 0,
+      "render": "0",
+      "display_tooltip": true
+     },
+     "last_viewed": false,
+     "poll_tracker": {
+      "like": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      },
+      "dislike": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      }
+     }
+    },
+    "render": {
+     "nid": "52135",
+     "title": "Moosehorn NWR Maintenance Shop - Replacement",
+     "body": "<p>Demolish existing 70 year old maintenance shop and replace with new maintenance shop.</p>\n",
+     "field_result_id": "Department of the Interior",
+     "field_funding_organization": "U.S. Fish and Wildlife Service",
+     "field_place_of_performance": "<p class=\"address\" translate=\"no\"><span class=\"locality\">Calais</span>, <span class=\"administrative-area\">ME</span><br>\n<span class=\"country\">United States</span></p>",
+     "field_source_listing_id": "FWS2026001469",
+     "field_award_status": "Acquisition Planning",
+     "field_contract_type": "To Be Determined",
+     "field_estimated_award_fy": "2027",
+     "field_estimated_contract_v_max": "$1M - $1.9M",
+     "field_naics_code": "<div id=\"taxonomy-term-782\" class=\"taxonomy-term vocabulary-naics-code\">\n  \n      <h2><a href=\"/taxonomy/term/782\">\n            <div class=\"field field--name-name field--type-string field--label-hidden field__item\">236220</div>\n      </a></h2>\n    \n  <div class=\"content\">\n      <div class=\"layout layout--onecol\">\n    <div  class=\"layout__region layout__region--content\">\n      <div class=\"block block-layout-builder block-field-blocktaxonomy-termnaics-codefield-label\">\n  \n    \n      \n            <div class=\"field field--name-field-label field--type-string field--label-hidden field__item\">Commercial and Institutional Building Construction</div>\n      \n  </div>\n\n    </div>\n  </div>\n\n  </div>\n</div>\n",
+     "field_acquisition_strategy": "To Be Determined",
+     "field_period_of_performance": "<time datetime=\"2026-05-31T12:00:00Z\" class=\"datetime\">05/31/2026</time>\n",
+     "created": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n",
+     "changed": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n"
+    },
+    "values": {
+     "nid": "52135",
+     "title": "Moosehorn NWR Maintenance Shop - Replacement",
+     "body": "Demolish existing 70 year old maintenance shop and replace with new maintenance shop.",
+     "field_result_id": "4",
+     "field_funding_organization": "397",
+     "field_place_of_performance": [
+      "US"
+     ],
+     "field_source_listing_id": "FWS2026001469",
+     "field_award_status": "473",
+     "field_contract_type": "495",
+     "field_estimated_award_fy": "2027",
+     "field_estimated_contract_v_max": "4234",
+     "field_naics_code": [
+      "782"
+     ],
+     "field_acquisition_strategy": [
+      "4749"
+     ],
+     "field_period_of_performance": "2026-05-31",
+     "created": "1790875240",
+     "changed": "1790875240"
+    },
+    "type": "node",
+    "tid": null,
+    "alias": "/forecast"
+   },
+   {
+    "pid": "52136",
+    "nid": "52136",
+    "rank": {
+     "nid": "52136",
+     "views": {
+      "value": 0,
+      "render": "0",
+      "display_tooltip": true
+     },
+     "updated": {
+      "value": 1790875240,
+      "render": "10/01/2026",
+      "display_tooltip": false
+     },
+     "downloads": {
+      "value": 0,
+      "render": "0",
+      "display_tooltip": true
+     },
+     "last_viewed": false,
+     "poll_tracker": {
+      "like": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      },
+      "dislike": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      }
+     }
+    },
+    "render": {
+     "nid": "52136",
+     "title": "Wetlands Status and Trends Data Collection Project 1",
+     "body": "<p>This BPA will support the collection of data in project area one in support of the statutorily mandated 2029 Wetlands Status and trends Project</p>\n",
+     "field_result_id": "Department of the Interior",
+     "field_funding_organization": "U.S. Fish and Wildlife Service",
+     "field_place_of_performance": "<p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AL</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AK</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AS</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AZ</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AR</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AE</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AP</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">CA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">CO</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">CT</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">DE</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">DC</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">FL</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">GA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">GU</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">HI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">ID</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">IL</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">IN</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">IA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">KS</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">KY</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">LA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">ME</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MH</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MD</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">FM</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MN</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MS</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MO</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MT</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NE</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NV</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NH</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NJ</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NM</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NY</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NC</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">ND</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MP</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">OH</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">OK</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">OR</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">PW</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">PA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">PR</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">RI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">SC</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">SD</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">TN</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">TX</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">UT</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">VT</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">VI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">VA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">WA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">WV</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">WI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">WY</span><br>\n<span class=\"country\">United States</span></p>",
+     "field_source_listing_id": "FWS2026001470",
+     "field_award_status": "Acquisition Planning",
+     "field_contract_type": "To Be Determined",
+     "field_estimated_award_fy": "2027",
+     "field_estimated_contract_v_max": "$250K - $499K",
+     "field_naics_code": "<div id=\"taxonomy-term-1438\" class=\"taxonomy-term vocabulary-naics-code\">\n  \n      <h2><a href=\"/taxonomy/term/1438\">\n            <div class=\"field field--name-name field--type-string field--label-hidden field__item\">541360</div>\n      </a></h2>\n    \n  <div class=\"content\">\n      <div class=\"layout layout--onecol\">\n    <div  class=\"layout__region layout__region--content\">\n      <div class=\"block block-layout-builder block-field-blocktaxonomy-termnaics-codefield-label\">\n  \n    \n      \n            <div class=\"field field--name-field-label field--type-string field--label-hidden field__item\">Geophysical Surveying and Mapping Services</div>\n      \n  </div>\n\n    </div>\n  </div>\n\n  </div>\n</div>\n",
+     "field_acquisition_strategy": "To Be Determined",
+     "field_period_of_performance": "<time datetime=\"2026-05-31T12:00:00Z\" class=\"datetime\">05/31/2026</time>\n",
+     "created": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n",
+     "changed": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n"
+    },
+    "values": {
+     "nid": "52136",
+     "title": "Wetlands Status and Trends Data Collection Project 1",
+     "body": "This BPA will support the collection of data in project area one in support of the statutorily mandated 2029 Wetlands Status and trends Project",
+     "field_result_id": "4",
+     "field_funding_organization": "397",
+     "field_place_of_performance": [
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US"
+     ],
+     "field_source_listing_id": "FWS2026001470",
+     "field_award_status": "473",
+     "field_contract_type": "495",
+     "field_estimated_award_fy": "2027",
+     "field_estimated_contract_v_max": "4232",
+     "field_naics_code": [
+      "1438"
+     ],
+     "field_acquisition_strategy": [
+      "4749"
+     ],
+     "field_period_of_performance": "2026-05-31",
+     "created": "1790875240",
+     "changed": "1790875240"
+    },
+    "type": "node",
+    "tid": null,
+    "alias": "/forecast"
+   },
+   {
+    "pid": "52137",
+    "nid": "52137",
+    "rank": {
+     "nid": "52137",
+     "views": {
+      "value": 0,
+      "render": "0",
+      "display_tooltip": true
+     },
+     "updated": {
+      "value": 1790875240,
+      "render": "10/01/2026",
+      "display_tooltip": false
+     },
+     "downloads": {
+      "value": 0,
+      "render": "0",
+      "display_tooltip": true
+     },
+     "last_viewed": false,
+     "poll_tracker": {
+      "like": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      },
+      "dislike": {
+       "value": 0,
+       "render": "0",
+       "display_tooltip": true,
+       "locked": true
+      }
+     }
+    },
+    "render": {
+     "nid": "52137",
+     "title": "Wetlands Status and Trends Data Collection Project 2",
+     "body": "<p>This BPA will support the collection of data in project area two in support of the statutorily mandated 2029 Wetlands Status and trends Project</p>\n",
+     "field_result_id": "Department of the Interior",
+     "field_funding_organization": "U.S. Fish and Wildlife Service",
+     "field_place_of_performance": "<p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AL</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AK</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AS</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AZ</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AR</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AE</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">AP</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">CA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">CO</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">CT</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">DE</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">DC</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">FL</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">GA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">GU</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">HI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">ID</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">IL</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">IN</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">IA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">KS</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">KY</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">LA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">ME</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MH</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MD</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">FM</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MN</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MS</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MO</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MT</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NE</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NV</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NH</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NJ</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NM</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NY</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">NC</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">ND</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">MP</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">OH</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">OK</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">OR</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">PW</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">PA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">PR</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">RI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">SC</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">SD</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">TN</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">TX</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">UT</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">VT</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">VI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">VA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">WA</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">WV</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">WI</span><br>\n<span class=\"country\">United States</span></p>, <p class=\"address\" translate=\"no\"><span class=\"administrative-area\">WY</span><br>\n<span class=\"country\">United States</span></p>",
+     "field_source_listing_id": "FWS2026001471",
+     "field_award_status": "Acquisition Planning",
+     "field_contract_type": "To Be Determined",
+     "field_estimated_award_fy": "2027",
+     "field_estimated_contract_v_max": "$250K - $499K",
+     "field_naics_code": "<div id=\"taxonomy-term-1438\" class=\"taxonomy-term vocabulary-naics-code\">\n  \n      <h2><a href=\"/taxonomy/term/1438\">\n            <div class=\"field field--name-name field--type-string field--label-hidden field__item\">541360</div>\n      </a></h2>\n    \n  <div class=\"content\">\n      <div class=\"layout layout--onecol\">\n    <div  class=\"layout__region layout__region--content\">\n      <div class=\"block block-layout-builder block-field-blocktaxonomy-termnaics-codefield-label\">\n  \n    \n      \n            <div class=\"field field--name-field-label field--type-string field--label-hidden field__item\">Geophysical Surveying and Mapping Services</div>\n      \n  </div>\n\n    </div>\n  </div>\n\n  </div>\n</div>\n",
+     "field_acquisition_strategy": "To Be Determined",
+     "field_period_of_performance": "<time datetime=\"2026-05-31T12:00:00Z\" class=\"datetime\">05/31/2026</time>\n",
+     "created": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n",
+     "changed": "<time datetime=\"2026-10-01T13:20:40-04:00\" title=\"Thursday, October 1, 2026 - 13:20\" class=\"datetime\">10/01/2026</time>\n"
+    },
+    "values": {
+     "nid": "52137",
+     "title": "Wetlands Status and Trends Data Collection Project 2",
+     "body": "This BPA will support the collection of data in project area two in support of the statutorily mandated 2029 Wetlands Status and trends Project",
+     "field_result_id": "4",
+     "field_funding_organization": "397",
+     "field_place_of_performance": [
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US",
+      "US"
+     ],
+     "field_source_listing_id": "FWS2026001471",
+     "field_award_status": "473",
+     "field_contract_type": "495",
+     "field_estimated_award_fy": "2027",
+     "field_estimated_contract_v_max": "4232",
+     "field_naics_code": [
+      "1438"
+     ],
+     "field_acquisition_strategy": [
+      "4749"
+     ],
+     "field_period_of_performance": "2026-05-31",
+     "created": "1790875240",
+     "changed": "1790875240"
+    },
+    "type": "node",
+    "tid": null,
+    "alias": "/forecast"
+   }
+  ],
+  "total": "10207",
+  "count": 5
+ }
+}

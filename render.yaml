@@ -1,0 +1,26 @@
+# Render.com blueprint (persistent Node web service; long syncs need a long-running process).
+services:
+  - type: web
+    name: govcheck
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SCHEDULER_ENABLED
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL_CA_FILE
+        sync: false
+      - key: SAM_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: CRON_SECRET
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true

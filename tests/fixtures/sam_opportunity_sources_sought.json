@@ -1,0 +1,31 @@
+{
+  "noticeId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "title": "RFI - Enterprise Data Analytics and Power BI Dashboard Support",
+  "solicitationNumber": "70RDAD-26-RFI-0042",
+  "fullParentPathName": "HOMELAND SECURITY, DEPARTMENT OF.US CUSTOMS AND BORDER PROTECTION.ENTERPRISE SERVICES PROCUREMENT DIVISION",
+  "fullParentPathCode": "070.7014.70RDAD",
+  "postedDate": "2026-06-01",
+  "type": "Sources Sought",
+  "baseType": "Sources Sought",
+  "archiveType": "auto15",
+  "archiveDate": "2026-12-01",
+  "typeOfSetAsideDescription": "Total Small Business Set-Aside (FAR 19.5)",
+  "typeOfSetAside": "SBA",
+  "responseDeadLine": "2026-06-20T17:00:00-04:00",
+  "naicsCode": "541511",
+  "naicsCodes": ["541511"],
+  "classificationCode": "DA01",
+  "active": "Yes",
+  "award": null,
+  "pointOfContact": [
+    { "fax": null, "type": "primary", "email": "jane.smith@cbp.dhs.gov", "phone": "202-555-0100", "title": "Contracting Officer", "fullName": "Jane Smith" }
+  ],
+  "description": "https://api.sam.gov/prod/opportunities/v1/noticedesc?noticeid=a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "organizationType": "OFFICE",
+  "officeAddress": { "zipcode": "20229", "city": "WASHINGTON", "countryCode": "USA", "state": "DC" },
+  "placeOfPerformance": { "city": { "code": "50000", "name": "Washington" }, "state": { "code": "DC", "name": "District of Columbia" }, "zip": "20229", "country": { "code": "USA", "name": "UNITED STATES" } },
+  "additionalInfoLink": null,
+  "uiLink": "https://sam.gov/opp/a1b2c3d4e5f60718293a4b5c6d7e8f90/view",
+  "links": [],
+  "resourceLinks": ["https://sam.gov/api/prod/opps/v3/opportunities/resources/files/0123456789abcdef/download?api_key=null&token="]
+}

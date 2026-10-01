@@ -1,0 +1,16 @@
+# Optional external scheduler: calls the deployed app's cron endpoint.
+# Set repository secrets GOVCHECK_URL (e.g. https://govcheck.example.com) and GOVCHECK_CRON_SECRET (= CRON_SECRET).
+name: Scheduled sync
+on:
+  schedule:
+    - cron: '17 */6 * * *' # every 6 hours
+  workflow_dispatch:
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: ${{ vars.GOVCHECK_SCHEDULED_SYNC == 'true' }}
+    steps:
+      - name: Trigger due syncs
+        run: |
+          curl -fsS -X POST "${{ secrets.GOVCHECK_URL }}/api/cron/sync" \
+            -H "Authorization: Bearer ${{ secrets.GOVCHECK_CRON_SECRET }}"
