@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Columns3 } from 'lucide-react';
-import { setAsideLabel } from '../../shared/domain';
-import { moneyRange, relative } from '../format';
+import { PURSUIT_STAGE_LABELS, setAsideLabel, type PursuitStage } from '../../shared/domain';
+import { date, moneyRange, relative } from '../format';
 import { ClassBadge, Deadline, DecisionBadge, EligibilityBadge, Prov, Score, SourceBadges, StageBadge } from './ui';
 
 export interface Column {
@@ -14,10 +14,41 @@ export interface Column {
 }
 
 export const COLUMNS: Column[] = [
-  { key: 'fit', label: 'Fit', sort: 'best', render: (o) => <Score value={o.fit_score} label="Base company fit (0–100)" /> },
+  {
+    key: 'priority',
+    label: 'Priority',
+    sort: 'best',
+    render: (o) => (
+      <span title="Review priority: personalized fit + attractiveness, capped when eligibility is doubtful">
+        <Score value={o.priority_score} label="Review priority" />
+        {o.eligibility_status === 'ineligible' || o.eligibility_status === 'likely_ineligible' ? <span className="badge bad" style={{ marginLeft: 3 }}>!</span> : null}
+      </span>
+    ),
+  },
+  { key: 'fit', label: 'Fit', sort: 'fit', render: (o) => <Score value={o.fit_score} label="Base company fit (0–100)" /> },
   { key: 'pref', label: 'Pref', sort: 'preference', render: (o) => <Score value={o.preference_score} label="Learned preference score (0–100)" /> },
   { key: 'eligibility', label: 'Eligibility', render: (o) => <EligibilityBadge status={o.eligibility_status} /> },
+  { key: 'attractiveness', label: 'Attract.', sort: 'attractiveness', render: (o) => <Score value={o.attractiveness_score} label="Strategic attractiveness" /> },
+  { key: 'confidence', label: 'Conf.', sort: 'confidence', render: (o) => <Score value={o.confidence_score} label="Data confidence" /> },
   { key: 'decision', label: 'Decision', render: (o) => <DecisionBadge decision={o.decision} /> },
+  {
+    key: 'capture',
+    label: 'Capture',
+    sort: 'next_action',
+    render: (o) =>
+      o.pursuit_stage ? (
+        <div className="small" style={{ maxWidth: 200 }}>
+          <span className="badge info">{PURSUIT_STAGE_LABELS[o.pursuit_stage as PursuitStage] ?? o.pursuit_stage}</span> {o.capture_owner && <span className="muted">{o.capture_owner}</span>}
+          {o.next_action && (
+            <div className="truncate muted" title={o.next_action}>
+              → {o.next_action} {o.next_action_date ? `(${date(o.next_action_date)})` : ''}
+            </div>
+          )}
+        </div>
+      ) : (
+        <span className="muted small">—</span>
+      ),
+  },
   {
     key: 'opportunity',
     label: 'Opportunity',
@@ -65,12 +96,14 @@ export const COLUMNS: Column[] = [
   { key: 'setaside', label: 'Set-aside', render: (o) => <span className="small">{setAsideLabel(o.set_aside_code, o.set_aside)}</span> },
   { key: 'deadline', label: 'Deadline', sort: 'deadline', render: (o) => <Deadline value={o.response_deadline} /> },
   { key: 'source', label: 'Source', render: (o) => <SourceBadges ids={o.connector_ids} /> },
+  { key: 'perfEnd', label: 'PoP end', sort: 'expiring', render: (o) => <span className="small nowrap">{o.performance_end ? date(o.performance_end) : '—'}</span> },
   { key: 'completeness', label: 'Data', sort: 'completeness', render: (o) => <span className="num small" title="Data completeness">{o.data_completeness ?? '—'}%</span> },
   { key: 'updated', label: 'Updated', sort: 'updated', render: (o) => <span className="small muted nowrap">{relative(o.last_changed_at)}</span> },
 ];
 
-const DEFAULT_VISIBLE = ['fit', 'pref', 'eligibility', 'decision', 'opportunity', 'agency', 'stage', 'value', 'setaside', 'deadline', 'source', 'updated'];
-const STORAGE_KEY = 'goi.columns';
+const DEFAULT_VISIBLE = ['priority', 'fit', 'eligibility', 'decision', 'capture', 'opportunity', 'agency', 'stage', 'value', 'setaside', 'deadline', 'source', 'updated'];
+// v2: adds Priority / Capture columns (bumped so existing column choices pick them up once).
+const STORAGE_KEY = 'goi.columns.v2';
 
 function loadVisible(): string[] {
   try {
@@ -85,7 +118,7 @@ export function OpportunityTable({ rows, sort, onSort, compact }: { rows: any[];
   const navigate = useNavigate();
   const [visible, setVisible] = useState<string[]>(loadVisible);
   const [picker, setPicker] = useState(false);
-  const cols = COLUMNS.filter((c) => visible.includes(c.key) && (!compact || ['fit', 'pref', 'opportunity', 'agency', 'stage', 'value', 'deadline', 'decision'].includes(c.key)));
+  const cols = COLUMNS.filter((c) => visible.includes(c.key) && (!compact || ['priority', 'fit', 'opportunity', 'agency', 'stage', 'value', 'deadline', 'decision'].includes(c.key)));
   const toggle = (k: string) => {
     const next = visible.includes(k) ? visible.filter((x) => x !== k) : COLUMNS.map((c) => c.key).filter((x) => x === k || visible.includes(x));
     setVisible(next);

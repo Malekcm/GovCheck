@@ -248,7 +248,10 @@ async function* recompeteScan(ctx: ConnectorContext, cursor: Record<string, unkn
   for (const g of groups) {
     for (const code of naics) {
       if (ctx.shouldStop()) return;
-      const fetchPage: PageFetcher = (page) => usaspendingSearch(ctx, { naics: [code], startDate, minAmount, awardGroup: g.group }, { page, sort: g.sort, order: 'asc' });
+      // IDV "Award Amount" is the obligation on the vehicle itself (usually ~$0 — the money is on the orders),
+      // so a minimum-amount filter would hide nearly every expiring IDIQ/BPA. Apply it to contracts only.
+      const fetchPage: PageFetcher = (page) =>
+        usaspendingSearch(ctx, { naics: [code], startDate, minAmount: g.group === 'contracts' ? minAmount : undefined, awardGroup: g.group }, { page, sort: g.sort, order: 'asc' });
       const first = await firstPageEndingAfter(fetchPage, today, 400, g.endField);
       if (!first) {
         yield { records: [], note: `NAICS ${code} ${g.group}: none ending after today` };

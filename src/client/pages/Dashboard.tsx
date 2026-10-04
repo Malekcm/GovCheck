@@ -31,6 +31,7 @@ export function DashboardPage() {
   const k = d.kpis;
   const needsSetup = !d.company?.onboarding_completed_at || d.confirmedCapabilities === 0;
   const unconfigured = d.sources.filter((s: any) => s.health === 'not_configured');
+  const unhealthy = d.sources.filter((s: any) => s.health === 'degraded' || s.health === 'error');
 
   return (
     <div>
@@ -54,6 +55,12 @@ export function DashboardPage() {
         </div>
       )}
 
+      {unhealthy.length > 0 && (
+        <div className="callout bad" style={{ marginBottom: 12 }}>
+          Source problems: {unhealthy.map((s: any) => `${s.name} (${s.health})`).join(', ')} — GovCheck may be missing records. <Link to="/quality">See data quality →</Link>
+        </div>
+      )}
+
       <div className="kpis">
         <Kpi label="New since last visit" value={k.newSinceVisit} to="/opportunities?queue=new" tone="accent" />
         <Kpi label="High matches" value={k.highMatches} sub="Fit ≥ 70, open" to="/opportunities?queue=high-match" tone="accent" />
@@ -64,6 +71,9 @@ export function DashboardPage() {
         <Kpi label="Possible recompetes" value={k.recompetes} sub="Intelligence signals" to="/opportunities?queue=recompetes" tone="signal" />
         <Kpi label="Subcontracts" value={k.subcontracts} to="/opportunities?queue=subcontracts" />
         <Kpi label="Recently changed" value={k.recentlyChanged} sub="Last 7 days" to="/changes" />
+        <Kpi label="Your pursuits changed" value={k.pursuitsChanged} sub="Pursue/watch, last 7 days" to="/opportunities?queue=pursuit-changed" tone={k.pursuitsChanged ? 'warn' : ''} />
+        <Kpi label="Capture actions overdue" value={k.captureOverdue} sub={`${k.captureDue7} due in 7 days`} to="/pipeline" tone={k.captureOverdue ? 'warn' : ''} />
+        <Kpi label="Contracts expiring ≤ 12 mo" value={k.expiringAwards12} sub="In your NAICS (award records)" to="/expiring" tone="signal" />
         <Kpi label="Coverage gaps" value={k.coverageGaps} to="/coverage" tone={k.coverageGaps ? 'warn' : ''} />
         <Kpi
           label="Potential pipeline"
@@ -75,7 +85,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 2.4fr) minmax(280px, 1fr)' }}>
-        <Card title="Top open matches (by your preference score)" bodyClass="" actions={<Link to="/opportunities?queue=high-match">View all →</Link>}>
+        <Card title="Top open opportunities (review priority — eligibility-aware)" bodyClass="" actions={<Link to="/opportunities?queue=high-match">View all →</Link>}>
           {d.top.length ? <OpportunityTable rows={d.top} compact /> : <Empty title="No open opportunities yet">Run <Link to="/sources">a data refresh</Link> after setting up your profile.</Empty>}
         </Card>
         <div>

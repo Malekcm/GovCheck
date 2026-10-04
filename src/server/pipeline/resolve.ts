@@ -133,7 +133,8 @@ export async function upsertRelationship(
      RETURNING id, (xmax = 0) AS inserted`,
     [fromId, toId, type, createdBy === 'user' ? 'confirmed' : 'suggested', confidence, method, json(evidence), createdBy, createdBy === 'user' ? new Date() : null],
   );
-  if (row?.inserted && createdBy === 'system') {
+  // Weak 'related' suggestions stay in Merge Review but do not flood the change feed.
+  if (row?.inserted && createdBy === 'system' && type !== 'related') {
     for (const [a, b] of [
       [fromId, toId],
       [toId, fromId],

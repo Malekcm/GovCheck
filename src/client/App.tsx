@@ -4,7 +4,10 @@ import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'reac
 import {
   Activity,
   Building2,
+  CalendarClock,
   Database,
+  Gauge,
+  KanbanSquare,
   GitMerge,
   Brain,
   LayoutDashboard,
@@ -34,6 +37,9 @@ import { AgenciesPage, AgencyDetailPage } from './pages/Agencies';
 import { VendorsPage, VendorDetailPage } from './pages/Vendors';
 import { LearningPage } from './pages/Learning';
 import { LoginPage } from './pages/Login';
+import { PipelinePage } from './pages/Pipeline';
+import { DataQualityPage } from './pages/DataQuality';
+import { ExpiringPage } from './pages/Expiring';
 
 function useSyncStatus() {
   const qc = useQueryClient();
@@ -73,6 +79,7 @@ function Nav({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
         </div>
       </div>
       {link('/', <LayoutDashboard size={15} />, 'Dashboard')}
+      {link('/pipeline', <KanbanSquare size={15} />, 'Capture pipeline')}
       <div className="nav-section">Work queues</div>
       {(queues.data ?? []).map((q) => (
         <NavLink key={q.slug} to={`/opportunities?queue=${q.slug}`} onClick={onNavigate} className={() => (new URLSearchParams(window.location.search).get('queue') === q.slug && window.location.pathname === '/opportunities' ? 'active' : '')}>
@@ -83,6 +90,8 @@ function Nav({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
       ))}
       <div className="nav-section">Intelligence</div>
       {link('/coverage', <ShieldAlert size={15} />, 'Coverage gaps')}
+      {link('/expiring', <CalendarClock size={15} />, 'Expiring contracts')}
+      {link('/quality', <Gauge size={15} />, 'Data quality')}
       {link('/changes', <Activity size={15} />, 'Recent changes')}
       {link('/merge', <GitMerge size={15} />, 'Merge review')}
       {link('/agencies', <Building2 size={15} />, 'Agencies & offices')}
@@ -182,6 +191,9 @@ export function App() {
             <Route path="/onboarding" element={<OnboardingPage />} />
             <Route path="/sources" element={<SourcesPage />} />
             <Route path="/coverage" element={<CoveragePage />} />
+            <Route path="/pipeline" element={<PipelinePage />} />
+            <Route path="/quality" element={<DataQualityPage />} />
+            <Route path="/expiring" element={<ExpiringPage />} />
             <Route path="/changes" element={<ChangesPage />} />
             <Route path="/merge" element={<MergeReviewPage />} />
             <Route path="/agencies" element={<AgenciesPage />} />

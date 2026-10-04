@@ -35,6 +35,8 @@ export function registerIntelRoutes(app: Hono, deps: AppDeps) {
       recompetes: await count({ recompete: true }),
       subcontracts: await count({ opportunityClass: ['subcontract'], openOnly: true }),
       recentlyChanged: await count({ changedWithinDays: 7 }),
+      pursuitsChanged: await count({ decision: ['strong_pursue', 'pursue', 'partner_sub', 'interested', 'watch'], changedWithinDays: 7 }),
+      expiring12: await count({ expiringWithinMonths: 12 }),
       total: await count({}),
     };
     const coverage = await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM coverage_signals WHERE status = 'open'`);
@@ -44,7 +46,17 @@ export function registerIntelRoutes(app: Hono, deps: AppDeps) {
               count(*) FILTER (WHERE o.value_low IS NULL AND o.value_high IS NULL)::int AS unknown, count(*)::int AS n
        FROM opportunities o ${DECISION_JOIN} WHERE o.merged_into_id IS NULL AND d.decision IN ('strong_pursue','pursue','partner_sub','interested')`,
     );
-    const q = buildOpportunityQuery(OpportunityFilters.parse({ openOnly: true, sort: 'preference' }), { lastVisit, includeGrantsDefault: grants });
+    const capture = await db.one<{ overdue: number; due7: number }>(
+      `SELECT count(*) FILTER (WHERE next_action_date < current_date)::int AS overdue,
+              count(*) FILTER (WHERE next_action_date >= current_date AND next_action_date <= current_date + 7)::int AS due7
+       FROM opportunity_capture WHERE pursuit_stage NOT IN ('awarded','lost','no_bid')`,
+    );
+    const expiringAwards = await db.one<{ n: number }>(
+      `SELECT count(*)::int AS n FROM awards a WHERE a.award_key NOT LIKE 'sam_notice:%' AND a.pop_current_end BETWEEN current_date AND current_date + interval '12 months'
+         AND a.naics_code IN (SELECT code FROM company_naics)`,
+    );
+    // "Best" = eligibility-aware review priority, so a keyword match never outranks a hard restriction.
+    const q = buildOpportunityQuery(OpportunityFilters.parse({ openOnly: true, sort: 'best' }), { lastVisit, includeGrantsDefault: grants });
     const top = await db.query(`SELECT ${LIST_COLUMNS} FROM opportunities o ${DECISION_JOIN} WHERE ${q.where} ORDER BY ${q.orderBy} LIMIT 30`, q.params);
     const changes = await db.query(
       `SELECT e.id, e.event_type, e.title, e.detected_at, e.occurred_at, o.id AS opportunity_id, o.title AS opportunity_title, o.fit_score
@@ -55,7 +67,7 @@ export function registerIntelRoutes(app: Hono, deps: AppDeps) {
     const model = await db.one('SELECT version, sample_count, stage, blend_alpha, created_at FROM preference_models WHERE is_active ORDER BY version DESC LIMIT 1');
     const company = await db.one<{ name: string | null; onboarding_completed_at: string | null; onboarding_step: number }>('SELECT name, onboarding_completed_at, onboarding_step FROM company_profiles ORDER BY created_at LIMIT 1');
     const caps = await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM company_capabilities WHERE status = 'confirmed'`);
-    return c.json({ kpis: { ...kpis, coverageGaps: coverage?.n ?? 0, pipeline }, top, changes, sources, model, company, confirmedCapabilities: caps?.n ?? 0, lastVisit });
+    return c.json({ kpis: { ...kpis, coverageGaps: coverage?.n ?? 0, pipeline, captureOverdue: capture?.overdue ?? 0, captureDue7: capture?.due7 ?? 0, expiringAwards12: expiringAwards?.n ?? 0 }, top, changes, sources, model, company, confirmedCapabilities: caps?.n ?? 0, lastVisit });
   });
 
   app.get('/api/changes', async (c) => {

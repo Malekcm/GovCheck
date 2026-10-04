@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DECISIONS, DECISION_LABELS, type Decision } from '../../shared/domain';
+import { DECISION_LABELS, PRIMARY_DECISIONS, type Decision } from '../../shared/domain';
 import { api } from '../api';
 import { date } from '../format';
 import { Modal, toast } from './ui';
@@ -11,9 +11,10 @@ interface Reason {
   polarity: 'positive' | 'negative';
 }
 
-const POSITIVE: Decision[] = ['pursue', 'interested', 'watch', 'maybe'];
+const POSITIVE: Decision[] = ['strong_pursue', 'pursue', 'partner_sub', 'interested', 'watch'];
+const NEUTRAL: Decision[] = ['review_later', 'maybe', 'duplicate_irrelevant'];
 
-/** Pursue / Interested / Watch / Maybe / Pass / Not relevant — with reasons and free-text explanation. */
+/** Strong pursue / Pursue / Partner-sub / Watch / Review later / Pass / Not eligible / Duplicate — with structured reasons and free text. */
 export function DecisionControl({ opportunityId, current }: { opportunityId: string; current: any | null }) {
   const qc = useQueryClient();
   const meta = useQuery({ queryKey: ['meta'], queryFn: () => api.get<{ feedbackReasons: Reason[] }>('/api/meta') });
@@ -46,13 +47,13 @@ export function DecisionControl({ opportunityId, current }: { opportunityId: str
     setReasons(same ? current.reasons ?? [] : []);
     setExplanation(same ? current.explanation ?? '' : '');
   };
-  const polarity = pending && POSITIVE.includes(pending) && pending !== 'maybe' ? 'positive' : pending === 'maybe' ? 'any' : 'negative';
+  const polarity = pending && POSITIVE.includes(pending) ? 'positive' : pending && NEUTRAL.includes(pending) ? 'any' : 'negative';
   const shown = (meta.data?.feedbackReasons ?? []).filter((r) => polarity === 'any' || r.polarity === polarity);
 
   return (
     <div>
       <div className="decision-bar">
-        {DECISIONS.map((d) => (
+        {PRIMARY_DECISIONS.map((d) => (
           <button key={d} className={`btn sm ${d} ${current?.decision === d ? 'on' : ''}`} onClick={() => open(d)}>
             {DECISION_LABELS[d]}
           </button>
@@ -85,7 +86,10 @@ export function DecisionControl({ opportunityId, current }: { opportunityId: str
             </>
           }
         >
-          <p className="muted small">Reasons are optional but teach the preference model which aspects drove your decision (agency, size, scope, set-aside…).</p>
+          <p className="muted small">
+            Reasons are optional but teach the preference model which aspects drove your decision (agency, size, scope, set-aside…).
+            {pending === 'not_eligible' || pending === 'duplicate_irrelevant' || pending === 'review_later' ? ' This decision is recorded but does not train the preference model.' : ''}
+          </p>
           <div className="chips" style={{ marginBottom: 12 }}>
             {shown.map((r) => (
               <span key={r.code} className={`chip ${r.polarity === 'negative' ? 'neg' : ''} ${reasons.includes(r.code) ? 'on' : ''}`} onClick={() => setReasons((x) => (x.includes(r.code) ? x.filter((c) => c !== r.code) : [...x, r.code]))}>

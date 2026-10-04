@@ -87,6 +87,9 @@ export function recommendActions(d: Input): RecommendedAction[] {
     add(`Review ${pending.length} solicitation document(s) not yet parsed`, 'Requirements, evaluation criteria and page limits usually live in the attachments.', null, 'soon');
   if (!d.documents.length && ['solicitation', 'combined_synopsis'].includes(o.stage)) add('Download the solicitation package from the source', 'No documents are captured for an active solicitation.', null, 'soon');
   if (d.requirements.some((r) => r.category === 'sole_source')) add('Decide whether to challenge the sole-source intent with a capability statement', 'The notice states an intent to award without full competition.', day(deadline), 'now');
+  const incumbent = d.vendors.find((v) => v.role === 'confirmed_incumbent' || v.role === 'awardee');
+  if (incumbent && o.stage !== 'award' && o.recompete_signal)
+    add(`Research incumbent ${incumbent.name}: award history, modifications, CPARS signals and teaming posture`, 'This is follow-on work with a named incumbent — decide whether to compete, team, or pass.', null, 'soon');
   if (!d.vendors.length && (o.stage === 'solicitation' || o.stage === 'presolicitation' || o.recompete_signal)) add('Identify the incumbent (run "Refresh this opportunity" for award history)', 'No incumbent is linked yet.', null, 'later');
   if (o.value_low == null && o.value_high == null) add('Estimate the value from comparable awards', 'No official or estimated value is known.', null, 'later');
   if (!co && o.stage !== 'award' && o.opportunity_class !== 'intelligence') add('Find the contracting officer / point of contact', 'No contact is published on this profile.', null, 'later');

@@ -67,7 +67,7 @@ export function scoreAttractiveness(opp: OppForScoring, fit: FitResult, co: Comp
   else if (co.minValue || co.preferredMaxValue || co.maxRealisticValue) {
     if (co.minValue && v < co.minValue) add('Value', -18, `${formatRange(lo, hi)}${valueTag} is below your minimum worthwhile value (${formatMoney(co.minValue)}).`);
     else if (co.maxRealisticValue && v > co.maxRealisticValue) add('Value', -8, `${formatRange(lo, hi)}${valueTag} exceeds your realistic maximum — likely a teaming play.`);
-    else add('Value', 14, `${formatRange(lo, hi)}${valueTag} is in your target range.`);
+    else add('Value', 10, `${formatRange(lo, hi)}${valueTag} is in your target range.`);
   } else if (v >= 10_000_000) add('Value', 10, `Large opportunity: ${formatRange(lo, hi)}${valueTag}.`);
   else if (v >= 1_000_000) add('Value', 6, `Meaningful size: ${formatRange(lo, hi)}${valueTag}.`);
   else if (v < 150_000) add('Value', -6, `Small value: ${formatRange(lo, hi)}${valueTag}.`);
@@ -78,23 +78,23 @@ export function scoreAttractiveness(opp: OppForScoring, fit: FitResult, co: Comp
   if (x.cancelled) add('Status', -45, 'Notice appears to be cancelled.');
   else if (x.optionExercise) add('Competition', -35, 'Forecast says this is an exercise of an option on an existing contract — not a new competition.');
   else if (opp.stage === 'award') add('Timing', -25, 'Already awarded — useful as incumbent/recompete intelligence, not as a bid.');
-  else if (EARLY_STAGES.has(opp.stage)) add('Timing', 12, 'Pre-solicitation stage — time to shape the requirement, find teammates and meet the customer.');
+  else if (EARLY_STAGES.has(opp.stage)) add('Timing', 8, 'Pre-solicitation stage — time to shape the requirement, find teammates and meet the customer.');
   else if (days != null && days < 0) add('Timing', -30, `Response deadline passed ${Math.round(-days)} day(s) ago.`);
   else if (days != null && days < 7) add('Timing', -10, `Only ${Math.max(0, Math.round(days))} day(s) to respond.`);
   else if (days != null && days >= 14) add('Timing', 4, `${Math.round(days)} days to respond.`);
 
   // Competition restriction
   const eligibleSetAside = fit.eligibility.flags.some((f) => f.rule === 'set_aside' && f.kind === 'info');
-  if (opp.setAsideCode && eligibleSetAside) add('Competition', SOLE_SOURCE_SET_ASIDES.has(opp.setAsideCode) ? 15 : 12, `${opp.setAside ?? opp.setAsideCode} — restricted competition you have confirmed you qualify for.`);
+  if (opp.setAsideCode && eligibleSetAside) add('Competition', SOLE_SOURCE_SET_ASIDES.has(opp.setAsideCode) ? 14 : 10, `${opp.setAside ?? opp.setAsideCode} — restricted competition you have confirmed you qualify for.`);
   else if (!opp.setAsideCode && (opp.stage === 'solicitation' || opp.stage === 'combined_synopsis') && opp.opportunityClass === 'prime') add('Competition', -3, 'No set-aside: full and open competition.');
   if (x.soleSourceIntent) add('Competition', -20, 'Notice states an intent to award sole source — respond only if you can demonstrate capability to challenge it.');
 
   // Customer relationship
   const pref = co.preferredAgencies.find((a) => sameAgency(a, opp));
-  if (pref) add('Customer', 8, `Preferred agency (${pref}).`);
+  if (pref) add('Customer', 6, `Preferred agency (${pref}).`);
   const pp = co.pastPerformance.find((p) => sameAgency(p.agency, opp));
   if (pp) add('Customer', 8, `You have past performance with this agency (“${pp.name}”).`);
-  if (x.officePursuits > 0) add('Customer', 5, `You are pursuing ${x.officePursuits} other opportunity(ies) with the same contracting office.`);
+  if (x.officePursuits > 0) add('Customer', 4, `You are pursuing ${x.officePursuits} other opportunity(ies) with the same contracting office.`);
 
   // Incumbent dynamics
   if (opp.isSignal || x.hasIncumbent) {
@@ -102,7 +102,8 @@ export function scoreAttractiveness(opp: OppForScoring, fit: FitResult, co: Comp
     else add('Incumbent', 2, 'Incumbent identified — you can research their performance and plan displacement or teaming.');
   }
 
-  const score = clamp(50 + factors.reduce((s, f) => s + f.effect, 0));
+  // Neutral starting point 40: an average opportunity with nothing special lands around 40–55.
+  const score = clamp(40 + factors.reduce((s, f) => s + f.effect, 0));
   return { score, factors };
 }
 
