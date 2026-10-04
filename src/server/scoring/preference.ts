@@ -171,7 +171,9 @@ export function buildSamples(decisions: { decision: Decision; reasons: string[];
   const reasonMap = new Map(FEEDBACK_REASONS.map((r) => [r.code, r]));
   const samples: Sample[] = [];
   for (const d of decisions) {
-    samples.push({ x: d.features, y: DECISION_LABEL_VALUE[d.decision], w: 1 });
+    const y = DECISION_LABEL_VALUE[d.decision];
+    if (y == null) continue; // not a preference signal (e.g. "Not eligible", "Duplicate")
+    samples.push({ x: d.features, y, w: 1 });
     // Reasons tell us WHICH aspects drove the decision: add targeted samples restricted
     // to the feature groups each reason speaks to.
     for (const code of d.reasons) {
@@ -199,23 +201,26 @@ function evaluate(model: { weights: Map<string, number>; bias: number }, samples
 /** Train a new model version from all current decisions and persist it. */
 export async function retrainPreferenceModel(
   db: Db,
-  decisions: { decision: Decision; reasons: string[]; features: FeatureVector; fit: number }[],
+  allDecisions: { decision: Decision; reasons: string[]; features: FeatureVector; fit: number }[],
   trigger: string,
 ): Promise<PreferenceModel> {
+  // "Not eligible" / "Duplicate" / "Review later" carry no information about what work the user wants.
+  const decisions = allDecisions.filter((d) => DECISION_LABEL_VALUE[d.decision] != null);
+  const label = (d: { decision: Decision }) => DECISION_LABEL_VALUE[d.decision] as number;
   const n = decisions.length;
   const { stage, alpha } = stageForCount(n);
   const prev = await db.one<{ version: number }>('SELECT max(version) AS version FROM preference_models');
   const version = (prev?.version ?? 0) + 1;
   let weights = new Map<string, number>();
   let bias = 0;
-  const metrics: Record<string, unknown> = { decisions: n };
+  const metrics: Record<string, unknown> = { decisions: n, excludedNonPreferenceDecisions: allDecisions.length - n };
   if (n > 0) {
     const samples = buildSamples(decisions);
     ({ weights, bias } = trainLogistic(samples));
-    const primary = decisions.map((d) => ({ x: d.features, y: DECISION_LABEL_VALUE[d.decision], w: 1 }));
+    const primary = decisions.map((d) => ({ x: d.features, y: label(d), w: 1 }));
     Object.assign(metrics, { training: evaluate({ weights, bias }, primary), samples: samples.length });
     // Baseline: does base fit alone (≥50 = positive) predict decisions?
-    const baseCorrect = decisions.filter((d) => d.fit >= 50 === DECISION_LABEL_VALUE[d.decision] >= 0.5).length;
+    const baseCorrect = decisions.filter((d) => d.fit >= 50 === label(d) >= 0.5).length;
     metrics.baselineFitAccuracy = baseCorrect / n;
     if (n >= 15) {
       // 5-fold cross-validated accuracy (honest estimate of predictive value)
@@ -224,7 +229,7 @@ export async function retrainPreferenceModel(
         const train = decisions.filter((_, i) => i % 5 !== k);
         const test = decisions.filter((_, i) => i % 5 === k);
         const m = trainLogistic(buildSamples(train), { iterations: 250 });
-        correct += test.filter((d) => predict(m, d.features) >= 0.5 === DECISION_LABEL_VALUE[d.decision] >= 0.5).length;
+        correct += test.filter((d) => predict(m, d.features) >= 0.5 === label(d) >= 0.5).length;
       }
       metrics.crossValidatedAccuracy = correct / n;
     }

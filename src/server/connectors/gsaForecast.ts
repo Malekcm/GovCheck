@@ -75,7 +75,9 @@ export function normalizeForecast(row: any): NormalizedOpportunity {
   const setAside = setAsideFromText(strategy);
   const pop = text(v.field_period_of_performance) ?? text(r.field_period_of_performance);
   const listingId = text(r.field_source_listing_id) ?? text(v.field_source_listing_id);
-  const recompeteHint = /recompet|follow.?on|re-?compet/i.test(`${awardStatus ?? ''} ${strategy ?? ''} ${title}`);
+  // "Exercise of Option" forecasts are not new competitions; flag them so they are never ranked as bids.
+  const optionExercise = /exercis\w*\s+(of\s+)?(an?\s+)?option|option\s+(year|period)\s+exercise/i.test(`${awardStatus ?? ''} ${strategy ?? ''}`);
+  const recompeteHint = !optionExercise && /recompet|follow.?on|re-?compet/i.test(`${awardStatus ?? ''} ${strategy ?? ''} ${title}`);
 
   const dates: NormalizedOpportunity['dates'] = [];
   if (Number.isFinite(fy)) {
@@ -114,8 +116,40 @@ export function normalizeForecast(row: any): NormalizedOpportunity {
     links: [{ url: FORECAST_PUBLIC_URL, label: 'GSA Acquisition Gateway Forecast Tool' }],
     url: FORECAST_PUBLIC_URL,
     recompeteHint,
-    extra: { awardStatus, contractType, acquisitionStrategy: strategy, estimatedValueBand: valueText, naicsLabels: naics, forecastNid: row.nid, sourceListingId: listingId },
+    extra: {
+      awardStatus,
+      contractType,
+      acquisitionStrategy: strategy,
+      estimatedValueBand: valueText,
+      naicsLabels: naics,
+      forecastNid: row.nid,
+      sourceListingId: listingId,
+      optionExercise: optionExercise || undefined,
+    },
   };
+}
+
+/**
+ * Detects unstable upstream pagination. The live listing has been observed returning page 2 as an
+ * exact copy of page 1, which silently hides the real page-2 records. A page made entirely of
+ * already-seen records is reported as a coverage warning.
+ */
+export class PageTracker {
+  private seen = new Set<string>();
+  duplicatePages = 0;
+  get unique(): number {
+    return this.seen.size;
+  }
+  add(page: number, rows: any[]): string | null {
+    const ids = rows.map((r) => String(r?.nid ?? r?.values?.nid ?? ''));
+    const dups = ids.filter((i) => this.seen.has(i)).length;
+    ids.forEach((i) => this.seen.add(i));
+    if (ids.length && dups === ids.length) {
+      this.duplicatePages++;
+      return `Listing page ${page + 1} repeated records already returned by an earlier page; up to ${ids.length} forecasts may be hidden by the source's pagination.`;
+    }
+    return null;
+  }
 }
 
 export const gsaForecastAdapter: SourceAdapter = {
@@ -136,7 +170,7 @@ export const gsaForecastAdapter: SourceAdapter = {
       'Uses the public JSON listing behind the Forecast Tool (25 records/page). Incremental runs read the newest pages; weekly reconciliation re-reads the full listing (~400 pages) to catch edits. ' +
       'Forecast detail pages require a login.gov session and are NOT accessed, so point-of-contact details are not captured from this source.',
   },
-  parserVersion: 'gsa-forecast-1',
+  parserVersion: 'gsa-forecast-2',
 
   isConfigured() {
     return { configured: true };
@@ -156,6 +190,7 @@ export const gsaForecastAdapter: SourceAdapter = {
     const lastCreated = Number(cursor.lastCreated ?? 0);
     const overlap = 7 * 86400;
     let newest = lastCreated;
+    const tracker = new PageTracker();
     for (let page = 0; page < maxPages; page++) {
       if (ctx.shouldStop()) return;
       const { rows, total } = await fetchPage(ctx, page);
@@ -163,7 +198,7 @@ export const gsaForecastAdapter: SourceAdapter = {
       const created = rows.map((r) => Number(r.values?.created ?? 0));
       newest = Math.max(newest, ...created);
       const allOld = lastCreated > 0 && created.every((c) => c < lastCreated - overlap);
-      yield { records: rows.map(toRecord), apiRequests: 1, note: `Page ${page + 1} of ${Math.ceil(total / PAGE_SIZE)}` };
+      yield { records: rows.map(toRecord), apiRequests: 1, note: `Page ${page + 1} of ${Math.ceil(total / PAGE_SIZE)}`, warning: tracker.add(page, rows) ?? undefined };
       if (allOld) break;
     }
     yield { records: [], cursor: { ...cursor, lastCreated: newest } };
@@ -171,6 +206,8 @@ export const gsaForecastAdapter: SourceAdapter = {
 
   async *fetchReconcile(ctx, cursor): AsyncGenerator<FetchPage> {
     let page = Number((cursor.reconcileResume as number | undefined) ?? 0);
+    const fromStart = page === 0;
+    const tracker = new PageTracker();
     let total = Infinity;
     for (; page * PAGE_SIZE < total; page++) {
       if (ctx.shouldStop()) {
@@ -180,9 +217,25 @@ export const gsaForecastAdapter: SourceAdapter = {
       const res = await fetchPage(ctx, page);
       total = res.total || 0;
       if (!res.rows.length) break;
-      yield { records: res.rows.map(toRecord), apiRequests: 1, cursor: { ...cursor, reconcileResume: page + 1 }, note: `Page ${page + 1} of ${Math.ceil(total / PAGE_SIZE)}` };
+      yield {
+        records: res.rows.map(toRecord),
+        apiRequests: 1,
+        cursor: { ...cursor, reconcileResume: page + 1 },
+        note: `Page ${page + 1} of ${Math.ceil(total / PAGE_SIZE)}`,
+        warning: tracker.add(page, res.rows) ?? undefined,
+      };
     }
-    yield { records: [], cursor: { ...cursor, reconcileResume: 0, lastReconciledAt: new Date().toISOString() } };
+    // Did we actually see the whole listing? Report the measured coverage, not a green check.
+    const coverage = fromStart && Number.isFinite(total) && total > 0 ? tracker.unique / total : null;
+    yield {
+      records: [],
+      cursor: { ...cursor, reconcileResume: 0, lastReconciledAt: new Date().toISOString(), lastListingTotal: Number.isFinite(total) ? total : null, lastUniqueSeen: tracker.unique },
+      note: coverage != null ? `Listing reports ${total.toLocaleString()} forecasts; ${tracker.unique.toLocaleString()} unique captured (${(coverage * 100).toFixed(1)}%).` : undefined,
+      warning:
+        coverage != null && coverage < 0.98
+          ? `Only ${tracker.unique.toLocaleString()} of ${total.toLocaleString()} listed forecasts were reachable through the public listing (${(coverage * 100).toFixed(1)}%). ${tracker.duplicatePages} page(s) repeated an earlier page — the upstream pagination is unstable.`
+          : undefined,
+    };
   },
 
   normalize(record) {

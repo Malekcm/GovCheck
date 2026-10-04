@@ -17,6 +17,7 @@ const SOURCES = [
   ['sam_opportunities', 'SAM API'],
   ['sam_bulk', 'SAM bulk'],
   ['gsa_forecast', 'GSA forecast'],
+  ['dhs_apfs', 'DHS forecast (APFS)'],
   ['sba_subnet', 'SUBNet'],
   ['grants_gov', 'Grants.gov'],
   ['usaspending', 'USAspending'],

@@ -4,7 +4,7 @@ import { findPhrase, htmlToText, nameKey, titleCase, truncate } from '../lib/tex
 import type { CompanyContext } from '../scoring/types';
 import { TfIdfModel } from '../scoring/similarity';
 import { addIdentifiers, setDates, setFieldValues } from './apply';
-import { applyAwardFacts, linkAwardToOpportunity } from './awards';
+import { applyAwardFacts, linkAwardExact, linkAwardToOpportunity } from './awards';
 import { recomputeOpportunity } from './canonical';
 import { recompeteWindow } from './enrich';
 import { recordEvent } from './events';
@@ -80,11 +80,25 @@ export async function runRecompeteEngine(db: Db, co: CompanyContext, priorities:
     if (!rel.ok || !a.piid_key) continue;
     res.candidates++;
 
-    const existingSignal = await db.one<{ opportunity_id: string }>(
+    // A non-signal record (e.g. a DHS forecast) that names this contract as its predecessor IS the
+    // successor procurement: link it exactly and do not invent a separate signal.
+    const namedSuccessor = await db.one<{ opportunity_id: string }>(
       `SELECT oi.opportunity_id FROM opportunity_identifiers oi JOIN opportunities o ON o.id = oi.opportunity_id
-       WHERE oi.id_type = 'predecessor_piid' AND oi.normalized_value = $1 AND o.merged_into_id IS NULL LIMIT 1`,
+       WHERE oi.id_type = 'predecessor_piid' AND oi.normalized_value = $1 AND o.merged_into_id IS NULL AND NOT o.is_signal LIMIT 1`,
       [a.piid_key],
     );
+    if (namedSuccessor) {
+      await linkAwardExact(db, a.id);
+      await recomputeOpportunity(db, namedSuccessor.opportunity_id, { priorities });
+      res.successorsLinked++;
+      res.touchedIds.push(namedSuccessor.opportunity_id);
+    }
+    const existingSignal = await db.one<{ opportunity_id: string }>(
+      `SELECT oi.opportunity_id FROM opportunity_identifiers oi JOIN opportunities o ON o.id = oi.opportunity_id
+       WHERE oi.id_type = 'predecessor_piid' AND oi.normalized_value = $1 AND o.merged_into_id IS NULL AND o.is_signal LIMIT 1`,
+      [a.piid_key],
+    );
+    if (namedSuccessor && !existingSignal) continue;
     if (existingSignal) {
       await refreshSignalFacts(db, existingSignal.opportunity_id, a);
       await recomputeOpportunity(db, existingSignal.opportunity_id, { priorities });

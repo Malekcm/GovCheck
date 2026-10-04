@@ -76,6 +76,7 @@ const SOURCE_SHORT: Record<string, string> = {
   sam_awards: 'SAM awards',
   usaspending: 'USAspending',
   gsa_forecast: 'GSA forecast',
+  dhs_apfs: 'DHS forecast',
   sba_subnet: 'SUBNet',
   grants_gov: 'Grants.gov',
 };

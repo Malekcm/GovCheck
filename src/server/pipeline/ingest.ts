@@ -3,7 +3,7 @@ import type { Db } from '../db';
 import type { Logger } from '../lib/logger';
 import type { NormalizedOpportunity, RawRecord, SourceAdapter } from '../connectors/types';
 import { addIdentifiers, fieldInputsFor, setContacts, setDates, setDocuments, setFieldValues, setFinancials, setLocations } from './apply';
-import { applyAwardFacts, linkAwardExact, linkAwardToOpportunity, upsertAward } from './awards';
+import { applyAwardFacts, linkAwardExact, linkAwardToOpportunity, linkPredecessorContracts, upsertAward } from './awards';
 import { recomputeOpportunity } from './canonical';
 import { recordEvent } from './events';
 import { linkForecastReferences, linkSource, resolveOpportunity, suggestRelationships } from './resolve';
@@ -62,6 +62,12 @@ async function applyOpportunityRecord(db: Db, n: NormalizedOpportunity, stored: 
   await setLocations(db, ref, n.place ?? null);
   await setLocations(db, ref, n.officeAddress ?? null, 'office');
   const newDocs = await setDocuments(db, ref, n.documents);
+
+  const predecessors = n.identifiers.filter((i) => i.type === 'predecessor_piid').map((i) => i.value);
+  const namedIncumbent = typeof n.extra?.incumbentContractor === 'string' ? { name: n.extra.incumbentContractor as string, contract: (n.extra.incumbentContractNumber as string) ?? null } : null;
+  if (predecessors.length || namedIncumbent) {
+    for (const other of await linkPredecessorContracts(db, oppId, predecessors, namedIncumbent)) if (other !== oppId) ictx.dirty.add(other);
+  }
 
   if (n.award && (n.award.piid || n.award.awardee.name)) {
     const award = await upsertAward(db, n.award, ictx.connectorId, stored.id);

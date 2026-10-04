@@ -42,7 +42,7 @@ export function registerIntelRoutes(app: Hono, deps: AppDeps) {
       `SELECT COALESCE(sum(COALESCE(o.value_high, o.value_low)) FILTER (WHERE o.value_provenance = 'official'), 0) AS official,
               COALESCE(sum(COALESCE(o.value_high, o.value_low)) FILTER (WHERE o.value_provenance IN ('estimated','derived')), 0) AS estimated,
               count(*) FILTER (WHERE o.value_low IS NULL AND o.value_high IS NULL)::int AS unknown, count(*)::int AS n
-       FROM opportunities o ${DECISION_JOIN} WHERE o.merged_into_id IS NULL AND d.decision IN ('pursue','interested')`,
+       FROM opportunities o ${DECISION_JOIN} WHERE o.merged_into_id IS NULL AND d.decision IN ('strong_pursue','pursue','partner_sub','interested')`,
     );
     const q = buildOpportunityQuery(OpportunityFilters.parse({ openOnly: true, sort: 'preference' }), { lastVisit, includeGrantsDefault: grants });
     const top = await db.query(`SELECT ${LIST_COLUMNS} FROM opportunities o ${DECISION_JOIN} WHERE ${q.where} ORDER BY ${q.orderBy} LIMIT 30`, q.params);
@@ -169,7 +169,7 @@ export function registerIntelRoutes(app: Hono, deps: AppDeps) {
          (SELECT count(*)::int FROM opportunities o WHERE o.merged_into_id IS NULL AND (o.agency_id = a.id OR o.subagency_id = a.id)) AS opportunities,
          (SELECT count(*)::int FROM opportunities o WHERE o.merged_into_id IS NULL AND (o.agency_id = a.id OR o.subagency_id = a.id) AND COALESCE(o.fit_score,0) >= 50) AS relevant,
          (SELECT count(*)::int FROM opportunities o WHERE o.merged_into_id IS NULL AND (o.agency_id = a.id OR o.subagency_id = a.id) AND o.status = 'active' AND o.stage IN ('solicitation','combined_synopsis')) AS open_solicitations,
-         (SELECT count(*)::int FROM user_opportunity_decisions d JOIN opportunities o ON o.id = d.opportunity_id WHERE d.is_current AND d.decision IN ('pursue','interested') AND (o.agency_id = a.id OR o.subagency_id = a.id)) AS pursuits,
+         (SELECT count(*)::int FROM user_opportunity_decisions d JOIN opportunities o ON o.id = d.opportunity_id WHERE d.is_current AND d.decision IN ('strong_pursue','pursue','partner_sub','interested') AND (o.agency_id = a.id OR o.subagency_id = a.id)) AS pursuits,
          (SELECT COALESCE(sum(COALESCE(aw.total_obligated, aw.dollars_obligated)),0) FROM awards aw WHERE aw.award_key NOT LIKE 'sam_notice:%' AND (CASE WHEN a.level = 'subtier' THEN aw.subtier_name ILIKE a.name ELSE aw.department_name ILIKE a.name END)) AS award_total
        FROM agencies a LEFT JOIN agencies p ON p.id = a.parent_id ORDER BY relevant DESC, opportunities DESC LIMIT 500`,
     );

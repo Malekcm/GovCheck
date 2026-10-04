@@ -5,6 +5,7 @@ import { json } from '../db';
 import { getAdapter, builtinAdapter } from '../connectors/registry';
 import { focusFor, postProcess, runAllSources, runConnector, startExclusive, syncStatus } from '../pipeline/sync';
 import { runDueWork } from '../pipeline/scheduler';
+import { assertSafeUrlSyntax, UnsafeUrlError } from '../lib/urlSafety';
 
 const FeedSchema = z.object({
   name: z.string().min(2).max(120),
@@ -122,6 +123,12 @@ export function registerSourceRoutes(app: Hono, deps: AppDeps) {
   // Custom public feed connectors (Tier 8)
   app.post('/api/sources', async (c) => {
     const b = FeedSchema.parse(await readJson(c));
+    try {
+      assertSafeUrlSyntax(b.url);
+    } catch (err) {
+      if (err instanceof UnsafeUrlError) throw new HttpProblem(400, `Feed URL rejected: ${err.message}`);
+      throw err;
+    }
     const id = `feed_${b.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40)}_${Date.now().toString(36)}`;
     await db.query(
       `INSERT INTO source_connectors (id, name, source_type, base_url, access_method, enabled, auth_required, priority, schedule_minutes, config, notes, is_custom, health)

@@ -1,7 +1,8 @@
-import { STAGE_LABELS, type Decision, type Stage } from '../../shared/domain';
+import { PURSUIT_DECISIONS, STAGE_LABELS, type Decision, type EligibilityStatus, type Stage } from '../../shared/domain';
 import type { Db } from '../db';
 import { json } from '../db';
 import { htmlToText } from '../lib/text';
+import { computePriority, scoreAttractiveness, scoreConfidence, type ScoringExtras } from './dimensions';
 import { scoreOpportunity } from './fit';
 import { extractFeatures, loadActiveModel, preferenceScore, retrainPreferenceModel, type FeatureVector, type PreferenceModel } from './preference';
 import { companyCorpus, loadCompanyContext } from './profile';
@@ -14,6 +15,7 @@ const CONNECTOR_REASON: Record<string, string> = {
   sam_awards: 'SAM.gov Contract Awards data',
   usaspending: 'USAspending award history',
   gsa_forecast: 'GSA procurement forecast — pre-solicitation intelligence',
+  dhs_apfs: 'DHS procurement forecast (APFS) — pre-solicitation intelligence',
   sba_subnet: 'SBA SUBNet subcontracting listing',
   grants_gov: 'Grants.gov funding opportunity listing',
 };
@@ -84,9 +86,9 @@ async function discoveryReasons(db: Db, opp: OppForScoring, fit: FitResult, co: 
        (SELECT count(*)::int FROM opportunity_relationships r WHERE (r.from_opportunity_id = o.id OR r.to_opportunity_id = o.id) AND r.status <> 'rejected' AND r.relationship_type IN ('forecast_of')) AS forecast_links,
        (SELECT count(*)::int FROM opportunity_relationships r WHERE (r.from_opportunity_id = o.id OR r.to_opportunity_id = o.id) AND r.status <> 'rejected') AS rels,
        (SELECT count(*)::int FROM user_opportunity_decisions d JOIN opportunities o2 ON o2.id = d.opportunity_id
-          WHERE d.is_current AND d.decision IN ('pursue','interested') AND o2.office_id = o.office_id AND o2.id <> o.id AND o.office_id IS NOT NULL) AS office_pursuits
+          WHERE d.is_current AND d.decision = ANY($2::text[]) AND o2.office_id = o.office_id AND o2.id <> o.id AND o.office_id IS NOT NULL) AS office_pursuits
      FROM opportunities o WHERE o.id = $1`,
-    [opp.id],
+    [opp.id, PURSUIT_DECISIONS],
   );
   const connectors: string[] = row?.connector_ids ?? [];
   for (const c of connectors) out.push({ code: `source:${c}`, kind: 'source', text: CONNECTOR_REASON[c] ?? `Custom source: ${c}` });
@@ -130,25 +132,61 @@ export async function prepareScoring(db: Db): Promise<ScoreRunContext> {
   return { co, model: await buildSimilarityModel(db, co), pref: await loadActiveModel(db) };
 }
 
-/** Compute and persist fit, eligibility, preference and explanations for one profile. */
-export async function scoreOne(db: Db, ctx: ScoreRunContext, id: string, reason = 'refresh'): Promise<{ fit: number; preference: number } | null> {
+/** Facts the attractiveness / confidence dimensions need beyond the scoring text. */
+export async function loadScoringExtras(db: Db, id: string): Promise<ScoringExtras> {
+  const r = await db.one<any>(
+    `SELECT o.data_completeness, length(coalesce(o.description, '')) AS description_length, o.status,
+       (SELECT count(*)::int FROM opportunity_documents d WHERE d.opportunity_id = o.id) AS documents,
+       (SELECT count(*)::int FROM opportunity_documents d WHERE d.opportunity_id = o.id AND d.text_status = 'extracted') AS extracted,
+       (SELECT count(*)::int FROM opportunity_sources os WHERE os.opportunity_id = o.id) AS sources,
+       EXISTS (SELECT 1 FROM opportunity_vendors ov WHERE ov.opportunity_id = o.id) AS has_incumbent,
+       (SELECT count(*)::int FROM user_opportunity_decisions d JOIN opportunities o2 ON o2.id = d.opportunity_id
+          WHERE d.is_current AND d.decision = ANY($2::text[]) AND o2.office_id = o.office_id AND o2.id <> o.id AND o.office_id IS NOT NULL) AS office_pursuits,
+       EXISTS (SELECT 1 FROM opportunity_sources os JOIN source_records sr ON sr.id = os.source_record_id
+          WHERE os.opportunity_id = o.id AND sr.seen_status = 'active' AND (sr.normalized->'data'->'extra'->>'optionExercise') = 'true') AS option_exercise,
+       EXISTS (SELECT 1 FROM opportunity_requirements q WHERE q.opportunity_id = o.id AND q.is_current AND q.category = 'sole_source') AS sole_source
+     FROM opportunities o WHERE o.id = $1`,
+    [id, PURSUIT_DECISIONS],
+  );
+  return {
+    dataCompleteness: r?.data_completeness ?? null,
+    descriptionLength: Number(r?.description_length ?? 0),
+    extractedDocuments: r?.extracted ?? 0,
+    documentCount: r?.documents ?? 0,
+    sourceCount: r?.sources ?? 0,
+    hasIncumbent: !!r?.has_incumbent,
+    officePursuits: r?.office_pursuits ?? 0,
+    cancelled: r?.status === 'cancelled',
+    optionExercise: !!r?.option_exercise,
+    soleSourceIntent: !!r?.sole_source,
+  };
+}
+
+/** Compute and persist fit, eligibility, preference, the other score dimensions and explanations for one profile. */
+export async function scoreOne(db: Db, ctx: ScoreRunContext, id: string, reason = 'refresh'): Promise<{ fit: number; preference: number; priority: number } | null> {
   const opp = await loadOppForScoring(db, id);
   if (!opp) return null;
   const fit = scoreOpportunity(opp, ctx.co, ctx.model);
-  const hasIncumbent = !!(await db.one('SELECT 1 FROM opportunity_vendors WHERE opportunity_id = $1 LIMIT 1', [id]));
-  const features = extractFeatures(opp, fit, { hasIncumbent });
+  const extras = await loadScoringExtras(db, id);
+  const features = extractFeatures(opp, fit, { hasIncumbent: extras.hasIncumbent });
   const pref = preferenceScore(fit.fit, ctx.pref, features);
+  const attractiveness = scoreAttractiveness(opp, fit, ctx.co, extras);
+  const confidence = scoreConfidence(opp, fit, extras);
+  const priority = computePriority({ preference: pref.score, attractiveness: attractiveness.score, eligibility: fit.eligibility.status, status: opp.status, stage: opp.stage, deadline: opp.deadline, isSignal: opp.isSignal });
+  const dimensions = { attractiveness, confidence, priority };
   const reasons = await discoveryReasons(db, opp, fit, ctx.co);
-  const prev = await db.one<{ fit_score: number | null; preference_score: number | null }>('SELECT fit_score, preference_score FROM opportunities WHERE id = $1', [id]);
+  const prev = await db.one<{ fit_score: number | null; preference_score: number | null; priority_score: number | null }>('SELECT fit_score, preference_score, priority_score FROM opportunities WHERE id = $1', [id]);
 
   await db.tx(async (tx) => {
     await tx.query(
-      `INSERT INTO match_scores (opportunity_id, company_id, fit_score, preference_score, learned_component, blend_alpha, eligibility_status, model_version, weights, computed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb, now())
+      `INSERT INTO match_scores (opportunity_id, company_id, fit_score, preference_score, learned_component, blend_alpha, eligibility_status, model_version, weights,
+         attractiveness_score, confidence_score, priority_score, dimensions, computed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13::jsonb, now())
        ON CONFLICT (opportunity_id) DO UPDATE SET company_id = EXCLUDED.company_id, fit_score = EXCLUDED.fit_score, preference_score = EXCLUDED.preference_score,
          learned_component = EXCLUDED.learned_component, blend_alpha = EXCLUDED.blend_alpha, eligibility_status = EXCLUDED.eligibility_status,
-         model_version = EXCLUDED.model_version, weights = EXCLUDED.weights, computed_at = now()`,
-      [id, ctx.co.id, fit.fit, pref.score, pref.learned, ctx.pref.alpha, fit.eligibility.status, ctx.pref.version, json(ctx.co.weights)],
+         model_version = EXCLUDED.model_version, weights = EXCLUDED.weights, attractiveness_score = EXCLUDED.attractiveness_score,
+         confidence_score = EXCLUDED.confidence_score, priority_score = EXCLUDED.priority_score, dimensions = EXCLUDED.dimensions, computed_at = now()`,
+      [id, ctx.co.id, fit.fit, pref.score, pref.learned, ctx.pref.alpha, fit.eligibility.status, ctx.pref.version, json(ctx.co.weights), attractiveness.score, confidence.score, priority.score, json(dimensions)],
     );
     await tx.query('DELETE FROM match_score_components WHERE opportunity_id = $1', [id]);
     await tx.query(
@@ -168,18 +206,23 @@ export async function scoreOne(db: Db, ctx: ScoreRunContext, id: string, reason 
       `INSERT INTO match_explanations (opportunity_id, kind, text, severity, detail) SELECT $1, x.kind, x.text, x.severity, x.detail FROM jsonb_to_recordset($2::jsonb) AS x(kind text, text text, severity text, detail jsonb)`,
       [id, json(expl)],
     );
-    await tx.query(`UPDATE opportunities SET fit_score = $2, preference_score = $3, eligibility_status = $4, discovery_reasons = $5::jsonb, scored_at = now() WHERE id = $1`, [
-      id,
-      fit.fit,
-      pref.score,
-      fit.eligibility.status,
-      json(reasons),
-    ]);
-    if (!prev || prev.fit_score !== fit.fit || prev.preference_score !== pref.score) {
-      await tx.query('INSERT INTO score_history (opportunity_id, fit_score, preference_score, model_version, reason) VALUES ($1,$2,$3,$4,$5)', [id, fit.fit, pref.score, ctx.pref.version, reason]);
+    await tx.query(
+      `UPDATE opportunities SET fit_score = $2, preference_score = $3, eligibility_status = $4, discovery_reasons = $5::jsonb,
+         attractiveness_score = $6, confidence_score = $7, priority_score = $8, scored_at = now() WHERE id = $1`,
+      [id, fit.fit, pref.score, fit.eligibility.status, json(reasons), attractiveness.score, confidence.score, priority.score],
+    );
+    if (!prev || prev.fit_score !== fit.fit || prev.preference_score !== pref.score || prev.priority_score !== priority.score) {
+      await tx.query('INSERT INTO score_history (opportunity_id, fit_score, preference_score, priority_score, model_version, reason) VALUES ($1,$2,$3,$4,$5,$6)', [
+        id,
+        fit.fit,
+        pref.score,
+        priority.score,
+        ctx.pref.version,
+        reason,
+      ]);
     }
   });
-  return { fit: fit.fit, preference: pref.score };
+  return { fit: fit.fit, preference: pref.score, priority: priority.score };
 }
 
 export async function scoreMany(db: Db, ids: string[] | 'all', reason = 'refresh', ctx?: ScoreRunContext): Promise<number> {
@@ -222,18 +265,51 @@ export async function retrainAndRescore(db: Db, trigger: string): Promise<Prefer
  * only the learned blend changes, using the feature vectors stored at scoring time.
  */
 export async function rescorePreferencesOnly(db: Db, pref: PreferenceModel): Promise<number> {
-  const rows = await db.query<{ opportunity_id: string; fit_score: number; preference_score: number | null; features: FeatureVector | null }>(
-    `SELECT ms.opportunity_id, ms.fit_score, ms.preference_score, me.detail->'features' AS features
-     FROM match_scores ms LEFT JOIN match_explanations me ON me.opportunity_id = ms.opportunity_id AND me.kind = 'features'`,
+  const rows = await db.query<{
+    opportunity_id: string;
+    fit_score: number;
+    preference_score: number | null;
+    features: FeatureVector | null;
+    attractiveness_score: number | null;
+    eligibility_status: EligibilityStatus;
+    dimensions: Record<string, unknown> | null;
+    status: string;
+    stage: string;
+    response_deadline: string | null;
+    is_signal: boolean;
+  }>(
+    `SELECT ms.opportunity_id, ms.fit_score, ms.preference_score, me.detail->'features' AS features, ms.attractiveness_score, ms.eligibility_status, ms.dimensions,
+       o.status, o.stage, o.response_deadline, o.is_signal
+     FROM match_scores ms JOIN opportunities o ON o.id = ms.opportunity_id LEFT JOIN match_explanations me ON me.opportunity_id = ms.opportunity_id AND me.kind = 'features'`,
   );
   let changed = 0;
   for (const r of rows) {
     const { score, learned } = preferenceScore(r.fit_score, pref, r.features ?? {});
     if (score === r.preference_score) continue;
     changed++;
-    await db.query('UPDATE match_scores SET preference_score = $2, learned_component = $3, blend_alpha = $4, model_version = $5 WHERE opportunity_id = $1', [r.opportunity_id, score, learned, pref.alpha, pref.version]);
-    await db.query('UPDATE opportunities SET preference_score = $2 WHERE id = $1', [r.opportunity_id, score]);
-    await db.query('INSERT INTO score_history (opportunity_id, fit_score, preference_score, model_version, reason) VALUES ($1,$2,$3,$4,$5)', [r.opportunity_id, r.fit_score, score, pref.version, `preference model v${pref.version}`]);
+    // Priority depends on the personalized score, so it moves with the model — eligibility gating still applies.
+    const priority = computePriority({
+      preference: score,
+      attractiveness: r.attractiveness_score ?? 50,
+      eligibility: r.eligibility_status,
+      status: r.status,
+      stage: r.stage,
+      deadline: r.response_deadline ? new Date(r.response_deadline).toISOString() : null,
+      isSignal: r.is_signal,
+    });
+    await db.query(
+      'UPDATE match_scores SET preference_score = $2, learned_component = $3, blend_alpha = $4, model_version = $5, priority_score = $6, dimensions = $7::jsonb WHERE opportunity_id = $1',
+      [r.opportunity_id, score, learned, pref.alpha, pref.version, priority.score, json({ ...(r.dimensions ?? {}), priority })],
+    );
+    await db.query('UPDATE opportunities SET preference_score = $2, priority_score = $3 WHERE id = $1', [r.opportunity_id, score, priority.score]);
+    await db.query('INSERT INTO score_history (opportunity_id, fit_score, preference_score, priority_score, model_version, reason) VALUES ($1,$2,$3,$4,$5,$6)', [
+      r.opportunity_id,
+      r.fit_score,
+      score,
+      priority.score,
+      pref.version,
+      `preference model v${pref.version}`,
+    ]);
   }
   return changed;
 }

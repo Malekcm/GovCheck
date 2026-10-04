@@ -41,7 +41,7 @@ describe('ingestion, entity resolution and durability', () => {
     const sr = await db.one<any>('SELECT * FROM source_records');
     expect(sr.raw).toEqual(item);
     expect(sr.content_hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(sr.parser_version).toBe('sam-opps-2');
+    expect(sr.parser_version).toBe(samOpportunitiesAdapter.parserVersion);
     expect(sr.normalized.data.stage).toBe('rfi');
     expect((await db.one<{ n: number }>('SELECT count(*)::int AS n FROM source_record_versions'))!.n).toBe(1);
   });

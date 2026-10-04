@@ -17,6 +17,8 @@ const ID_TABLES: { table: string; guard?: string }[] = [
   { table: 'opportunity_requirements' },
   { table: 'opportunity_events', guard: 'NOT EXISTS (SELECT 1 FROM opportunity_events x WHERE x.opportunity_id = $1 AND x.dedupe_key = t.dedupe_key)' },
   { table: 'user_notes' },
+  { table: 'user_field_overrides', guard: 'NOT EXISTS (SELECT 1 FROM user_field_overrides x WHERE x.opportunity_id = $1 AND x.field = t.field)' },
+  { table: 'opportunity_capture_history' },
 ];
 
 /** Composite-key tables: [table, key columns other than opportunity_id]. */
@@ -26,7 +28,12 @@ const KEY_TABLES: [string, string[]][] = [
   ['opportunity_awards', ['award_id', 'relationship']],
   ['opportunity_vendors', ['vendor_id', 'role']],
   ['user_tags', ['tag']],
+  // One capture record per profile: moved only when the surviving profile has none.
+  ['opportunity_capture', []],
 ];
+
+const keyMatch = (keys: string[]) => (keys.length ? keys.map((k) => `x.${k} = t.${k}`).join(' AND ') : 'true');
+const keyReturning = (keys: string[]) => (keys.length ? keys.map((k) => `t.${k}`).join(', ') : 'true AS moved');
 
 export async function mergeOpportunities(db: Db, primaryId: string, secondaryId: string, priorities: Map<string, number>, note?: string): Promise<string> {
   if (primaryId === secondaryId) throw new Error('Cannot merge a profile into itself.');
@@ -45,9 +52,8 @@ export async function mergeOpportunities(db: Db, primaryId: string, secondaryId:
       moved[table] = rows.map((r) => r.id);
     }
     for (const [table, keys] of KEY_TABLES) {
-      const match = keys.map((k) => `x.${k} = t.${k}`).join(' AND ');
       const rows = await tx.query<Record<string, unknown>>(
-        `UPDATE ${table} t SET opportunity_id = $1 WHERE t.opportunity_id = $2 AND NOT EXISTS (SELECT 1 FROM ${table} x WHERE x.opportunity_id = $1 AND ${match}) RETURNING ${keys.map((k) => `t.${k}`).join(', ')}`,
+        `UPDATE ${table} t SET opportunity_id = $1 WHERE t.opportunity_id = $2 AND NOT EXISTS (SELECT 1 FROM ${table} x WHERE x.opportunity_id = $1 AND ${keyMatch(keys)}) RETURNING ${keyReturning(keys)}`,
         [primaryId, secondaryId],
       );
       moved[table] = rows;
@@ -86,7 +92,7 @@ export async function undoMerge(db: Db, mergeId: string, priorities: Map<string,
     }
     for (const [table, keys] of KEY_TABLES) {
       for (const k of (m.moved[table] ?? []) as Record<string, unknown>[]) {
-        const cond = keys.map((key, i) => `${key} = $${i + 3}`).join(' AND ');
+        const cond = keys.length ? keys.map((key, i) => `${key} = $${i + 3}`).join(' AND ') : 'true';
         await tx.query(`UPDATE ${table} SET opportunity_id = $1 WHERE opportunity_id = $2 AND ${cond}`, [m.secondary_id, m.primary_id, ...keys.map((key) => k[key])]);
       }
     }

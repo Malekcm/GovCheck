@@ -65,7 +65,8 @@ export async function processDocument(deps: DocDeps, d: DocRow): Promise<string>
   let mime: string | null = d.mime_type;
   let filename = d.filename;
   try {
-    const res = await deps.http.request<Buffer>({ url, responseType: 'buffer', timeoutMs: 120_000, retries: 2, maxBytes: deps.config.documentMaxBytes, hostDelayMs: 1500 });
+    // Document URLs come from third-party data: refuse private/loopback targets (SSRF guard).
+    const res = await deps.http.request<Buffer>({ url, responseType: 'buffer', timeoutMs: 120_000, retries: 2, maxBytes: deps.config.documentMaxBytes, hostDelayMs: 1500, publicOnly: true });
     buf = res.data;
     mime = res.headers.get('content-type') ?? mime;
     filename = filenameFromDisposition(res.headers.get('content-disposition')) ?? filename ?? decodeURIComponent(new URL(d.url).pathname.split('/').pop() ?? '') ?? null;
@@ -91,6 +92,9 @@ export async function processDocument(deps: DocDeps, d: DocRow): Promise<string>
     [d.id, extracted.status, extracted.text, extracted.pageCount, hash, changed, filename, mime, buf.length, docType, extracted.error ?? null],
   );
   if (changed) await recordEvent(db, d.opportunity_id, { type: 'DOCUMENT_UPDATED', title: `Document updated: ${filename ?? d.url} (version ${d.version + 1})`, dedupeKey: `docv:${d.id}:${hash}`, detail: { documentId: d.id } });
+  // Classified concepts a BD lead must notice immediately.
+  if (docType === 'QA') await recordEvent(db, d.opportunity_id, { type: 'QA_PUBLISHED', title: `Q&A published: ${filename ?? d.url}`, dedupeKey: `qa:${d.id}:${hash}`, detail: { documentId: d.id }, isLifecycle: true, lifecycleStage: 'qa' });
+  if (docType === 'AMENDMENT') await recordEvent(db, d.opportunity_id, { type: 'AMENDMENT', title: `Amendment document: ${filename ?? d.url}`, dedupeKey: `amd-doc:${d.id}:${hash}`, detail: { documentId: d.id }, isLifecycle: true, lifecycleStage: 'amendment' });
 
   if (extracted.text) await storeRuleRequirements(db, d.opportunity_id, extracted.text, hash, d.id, extracted.pages);
   await db.query('UPDATE opportunities SET has_documents = true WHERE id = $1', [d.opportunity_id]);
@@ -98,7 +102,11 @@ export async function processDocument(deps: DocDeps, d: DocRow): Promise<string>
 }
 
 /** Store deterministic (DERIVED) requirements with evidence quotes. Replaces earlier ones from the same source text. */
-export async function storeRuleRequirements(db: Db, opportunityId: string, text: string, contentHash: string, documentId: string | null, pages?: string[]): Promise<number> {
+/** Bump when rules change so unchanged text is re-extracted once with the new rules. */
+export const RULES_VERSION = 'r2';
+
+export async function storeRuleRequirements(db: Db, opportunityId: string, text: string, textHash: string, documentId: string | null, pages?: string[]): Promise<number> {
+  const contentHash = `${textHash}:${RULES_VERSION}`;
   const reqs = extractRuleRequirements(text);
   await db.query(
     `UPDATE opportunity_requirements SET is_current = false WHERE opportunity_id = $1 AND provenance = 'derived' AND document_id IS NOT DISTINCT FROM $2::uuid AND content_hash IS DISTINCT FROM $3`,
@@ -117,8 +125,8 @@ export async function storeRuleRequirements(db: Db, opportunityId: string, text:
     return idx >= 0 ? idx + 1 : null;
   };
   await db.query(
-    `INSERT INTO opportunity_requirements (opportunity_id, category, text, provenance, document_id, page, evidence_quote, content_hash)
-     SELECT $1, x.category, x.text, 'derived', $2, x.page, x.quote, $3 FROM jsonb_to_recordset($4::jsonb) AS x(category text, text text, page int, quote text)`,
+    `INSERT INTO opportunity_requirements (opportunity_id, category, text, provenance, document_id, page, evidence_quote, content_hash, strength)
+     SELECT $1, x.category, x.text, 'derived', $2, x.page, x.quote, $3, x.strength FROM jsonb_to_recordset($4::jsonb) AS x(category text, text text, page int, quote text, strength text)`,
     [opportunityId, documentId, contentHash, json(reqs.map((r) => ({ ...r, page: pageOf(r.quote) })))],
   );
   return reqs.length;

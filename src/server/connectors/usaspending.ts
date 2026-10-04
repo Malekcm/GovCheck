@@ -43,7 +43,33 @@ export interface AwardSearchFilters {
   startDate?: string;
   endDate?: string;
   minAmount?: number;
+  /** 'contracts' (A–D, default) or 'idvs' (IDIQs, GWACs, BPAs, FSS — different field names). */
+  awardGroup?: 'contracts' | 'idvs';
 }
+
+/** IDV searches use different column names and have no "End Date" (the ordering period ends on "Last Date to Order"). */
+const IDV_SEARCH_FIELDS = [
+  'Award ID',
+  'Recipient Name',
+  'Recipient UEI',
+  'Start Date',
+  'Last Date to Order',
+  'Award Amount',
+  'Total Outlays',
+  'Description',
+  'Awarding Agency',
+  'Awarding Sub Agency',
+  'Funding Agency',
+  'Funding Sub Agency',
+  'Contract Award Type',
+  'naics_code',
+  'psc_code',
+  'Place of Performance State Code',
+  'Last Modified Date',
+  'Base Obligation Date',
+  'generated_internal_id',
+  'recipient_id',
+];
 
 export async function usaspendingSearch(
   ctx: Pick<ConnectorContext, 'http'>,
@@ -52,7 +78,7 @@ export async function usaspendingSearch(
 ): Promise<{ results: any[]; hasNext: boolean }> {
   const today = new Date();
   const f: Record<string, unknown> = {
-    award_type_codes: CONTRACT_AWARD_TYPES,
+    award_type_codes: filters.awardGroup === 'idvs' ? IDV_AWARD_TYPES : CONTRACT_AWARD_TYPES,
     time_period: [{ start_date: filters.startDate ?? toDateOnly(addMonths(today, -60)), end_date: filters.endDate ?? toDateOnly(today) }],
   };
   if (filters.naics?.length) f.naics_codes = { require: filters.naics };
@@ -69,7 +95,7 @@ export async function usaspendingSearch(
     url: `${API}/search/spending_by_award/`,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filters: f, fields: SEARCH_FIELDS, limit: opts.limit ?? 100, page: opts.page ?? 1, sort: opts.sort ?? 'Award Amount', order: opts.order ?? 'desc' }),
+    body: JSON.stringify({ filters: f, fields: filters.awardGroup === 'idvs' ? IDV_SEARCH_FIELDS : SEARCH_FIELDS, limit: opts.limit ?? 100, page: opts.page ?? 1, sort: opts.sort ?? 'Award Amount', order: opts.order ?? 'desc' }),
     timeoutMs: 60_000,
     retries: 3,
     hostDelayMs: 700,
@@ -105,8 +131,9 @@ export function normalizeUsaspendingAward(raw: { search?: any; detail?: any }): 
   const generatedId = s(r.generated_internal_id) ?? s(d?.generated_unique_award_id) ?? '';
   const piid = s(d?.piid) ?? s(r['Award ID']);
   const parentPiid = s(d?.parent_award?.piid);
-  const naics = typeof r.NAICS === 'object' && r.NAICS ? s(r.NAICS.code) : s(r.NAICS) ?? s(d?.naics_hierarchy?.base_code?.code);
-  const psc = typeof r.PSC === 'object' && r.PSC ? s(r.PSC.code) : s(r.PSC) ?? s(d?.psc_hierarchy?.base_code?.code);
+  const naics = typeof r.NAICS === 'object' && r.NAICS ? s(r.NAICS.code) : s(r.NAICS) ?? s(r.naics_code) ?? s(d?.naics_hierarchy?.base_code?.code);
+  const psc = typeof r.PSC === 'object' && r.PSC ? s(r.PSC.code) : s(r.PSC) ?? s(r.psc_code) ?? s(d?.psc_hierarchy?.base_code?.code);
+  const isIdv = /^CONT_IDV_/i.test(generatedId) || r['Last Date to Order'] !== undefined;
   return {
     awardKey: `piid:${(parentPiid ?? '').toUpperCase()}:${(piid ?? generatedId).toUpperCase()}`,
     piid,
@@ -114,7 +141,7 @@ export function normalizeUsaspendingAward(raw: { search?: any; detail?: any }): 
     solicitationId: s(ltc.solicitation_identifier),
     usaspendingId: generatedId,
     awardType: s(d?.type_description) ?? s(r['Contract Award Type']),
-    idvType: s(d?.parent_award?.idv_type_description),
+    idvType: isIdv ? (s(d?.type_description) ?? s(r['Contract Award Type'])) : s(d?.parent_award?.idv_type_description),
     description: s(d?.description) ?? s(r.Description),
     awardee: {
       name: s(d?.recipient?.recipient_name) ?? s(r['Recipient Name']),
@@ -130,7 +157,8 @@ export function normalizeUsaspendingAward(raw: { search?: any; detail?: any }): 
     totalOutlays: n(d?.total_outlay) ?? n(r['Total Outlays']),
     dateSigned: toDateOnly(d?.date_signed ?? r['Base Obligation Date']),
     popStart: toDateOnly(d?.period_of_performance?.start_date ?? r['Start Date']),
-    popCurrentEnd: toDateOnly(d?.period_of_performance?.end_date ?? r['End Date']),
+    // For IDVs the meaningful "end" is the last date to order (when the vehicle stops accepting orders).
+    popCurrentEnd: toDateOnly(isIdv ? (r['Last Date to Order'] ?? d?.period_of_performance?.end_date) : (d?.period_of_performance?.end_date ?? r['End Date'])),
     popPotentialEnd: toDateOnly(d?.period_of_performance?.potential_end_date),
     agency: {
       department: titleCase(s(d?.awarding_agency?.toptier_agency?.name) ?? s(r['Awarding Agency'])),
@@ -161,13 +189,13 @@ type PageFetcher = (page: number) => Promise<{ results: any[]; hasNext: boolean 
  * or after `date`. USAspending pages are random-access, so this is an exponential probe followed
  * by a binary search: ~2·log2(pages) requests instead of walking every page.
  */
-export async function firstPageEndingAfter(fetchPage: PageFetcher, date: Date, maxPage = 400): Promise<{ page: number; requests: number } | null> {
+export async function firstPageEndingAfter(fetchPage: PageFetcher, date: Date, maxPage = 400, endField = 'End Date'): Promise<{ page: number; requests: number } | null> {
   let requests = 0;
   const lastEnd = async (page: number): Promise<number | null> => {
     requests++;
     const { results } = await fetchPage(page);
     if (!results.length) return null;
-    const ends = results.map((r) => parseDate(r['End Date'])?.getTime() ?? 0);
+    const ends = results.map((r) => parseDate(r[endField])?.getTime() ?? 0);
     return Math.max(...ends);
   };
   // exponential probe for an upper bound
@@ -213,43 +241,49 @@ async function* recompeteScan(ctx: ConnectorContext, cursor: Record<string, unkn
   const startDate = toDateOnly(addMonths(today, -36))!;
   let detailsFetched = 0;
 
-  for (const code of naics) {
-    if (ctx.shouldStop()) return;
-    const fetchPage: PageFetcher = (page) => usaspendingSearch(ctx, { naics: [code], startDate, minAmount }, { page, sort: 'End Date', order: 'asc' });
-    const first = await firstPageEndingAfter(fetchPage, today);
-    if (!first) {
-      yield { records: [], note: `NAICS ${code}: no contracts ending after today found` };
-      continue;
-    }
-    let requests = first.requests;
-    for (let page = first.page; page < first.page + maxPages; page++) {
+  // Contracts (A–D) end on "End Date"; IDVs (IDIQ/GWAC/BPA/FSS) stop accepting orders on "Last Date to Order".
+  // Expiring IDVs are major recompete events, so both are scanned unless includeIdvs = false.
+  const groups: { group: 'contracts' | 'idvs'; endField: string; sort: string }[] = [{ group: 'contracts', endField: 'End Date', sort: 'End Date' }];
+  if (ctx.settings.includeIdvs !== false) groups.push({ group: 'idvs', endField: 'Last Date to Order', sort: 'Last Date to Order' });
+  for (const g of groups) {
+    for (const code of naics) {
       if (ctx.shouldStop()) return;
-      const { results, hasNext } = await fetchPage(page);
-      requests++;
-      const records: RawRecord[] = [];
-      let beyondHorizon = false;
-      for (const row of results) {
-        const end = parseDate(row['End Date']);
-        if (!end || end.getTime() < today.getTime()) continue;
-        if (end.getTime() > horizon.getTime()) {
-          beyondHorizon = true; // later than the horizon: not a recompete yet
-          continue;
-        }
-        let detail: any;
-        if (detailsFetched < maxDetails && row.generated_internal_id) {
-          try {
-            detail = await usaspendingAwardDetail(ctx, String(row.generated_internal_id));
-            detailsFetched++;
-            requests++;
-          } catch (err) {
-            ctx.log.warn('USAspending detail fetch failed', err);
-          }
-        }
-        records.push(searchRowToRecord(row, detail));
+      const fetchPage: PageFetcher = (page) => usaspendingSearch(ctx, { naics: [code], startDate, minAmount, awardGroup: g.group }, { page, sort: g.sort, order: 'asc' });
+      const first = await firstPageEndingAfter(fetchPage, today, 400, g.endField);
+      if (!first) {
+        yield { records: [], note: `NAICS ${code} ${g.group}: none ending after today` };
+        continue;
       }
-      yield { records, apiRequests: requests, note: `NAICS ${code} page ${page}: ${records.length} contracts ending by ${toDateOnly(horizon)}` };
-      requests = 0;
-      if (!hasNext || beyondHorizon) break;
+      let requests = first.requests;
+      for (let page = first.page; page < first.page + maxPages; page++) {
+        if (ctx.shouldStop()) return;
+        const { results, hasNext } = await fetchPage(page);
+        requests++;
+        const records: RawRecord[] = [];
+        let beyondHorizon = false;
+        for (const row of results) {
+          const end = parseDate(row[g.endField]);
+          if (!end || end.getTime() < today.getTime()) continue;
+          if (end.getTime() > horizon.getTime()) {
+            beyondHorizon = true; // later than the horizon: not a recompete yet
+            continue;
+          }
+          let detail: any;
+          if (detailsFetched < maxDetails && row.generated_internal_id) {
+            try {
+              detail = await usaspendingAwardDetail(ctx, String(row.generated_internal_id));
+              detailsFetched++;
+              requests++;
+            } catch (err) {
+              ctx.log.warn('USAspending detail fetch failed', err);
+            }
+          }
+          records.push(searchRowToRecord(row, detail));
+        }
+        yield { records, apiRequests: requests, note: `NAICS ${code} ${g.group} page ${page}: ${records.length} ending by ${toDateOnly(horizon)}` };
+        requests = 0;
+        if (!hasNext || beyondHorizon) break;
+      }
     }
   }
   yield { records: [], cursor: { ...cursor, lastScanAt: today.toISOString() } };
@@ -272,7 +306,7 @@ export const usaspendingAdapter: SourceAdapter = {
       'Scheduled runs scan contracts in your NAICS codes that end within the recompete horizon (default 18 months). ' +
       'Opportunity refreshes and agency pages run targeted searches (same agency + NAICS) for incumbent and pricing analysis. No API key required.',
   },
-  parserVersion: 'usaspending-1',
+  parserVersion: 'usaspending-2',
 
   isConfigured() {
     return { configured: true };

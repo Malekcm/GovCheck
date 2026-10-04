@@ -46,6 +46,12 @@ export interface FetchPage {
   cursor?: Record<string, unknown>;
   apiRequests?: number;
   note?: string;
+  /**
+   * A coverage problem the connector noticed (duplicate pages, fewer records than the source
+   * reports, skipped sections). Any warning makes the run "partial_success" / health "degraded"
+   * so a green sync icon never hides a coverage gap.
+   */
+  warning?: string;
 }
 
 /** Shared, per-day request budgets (e.g. SAM.gov personal keys: 10 requests/day). */
@@ -192,6 +198,8 @@ export interface NormalizedOpportunity {
   stage: Stage;
   /** How the stage was determined when not taken verbatim (e.g. RFI detected from title). */
   stageBasis?: string;
+  /** Set when the status was derived (e.g. cancellation detected from the title) rather than reported. */
+  statusBasis?: string;
   noticeType?: string | null;
   status: 'active' | 'closed' | 'archived' | 'awarded' | 'cancelled' | 'forecast' | 'signal' | 'unknown';
   title: string;

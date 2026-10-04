@@ -90,7 +90,7 @@ export const samBulkAdapter: SourceAdapter = {
       'No API key needed and no daily request limit. Reconciliation streams the full file and keeps notices posted within SAM_BULK_LOOKBACK_DAYS or still open. ' +
       'Unchanged notices are skipped by content hash. Archived fiscal-year files can be imported on demand (filtered to your NAICS prefixes) from the Sources page.',
   },
-  parserVersion: 'sam-bulk-2',
+  parserVersion: 'sam-bulk-3',
 
   isConfigured() {
     return { configured: true };

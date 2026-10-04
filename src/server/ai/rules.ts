@@ -10,6 +10,8 @@ export interface DetectedRequirement {
   category: string;
   text: string;
   quote: string;
+  /** explicit = phrased as an obligation; mentioned = referenced without an obligation. */
+  strength?: 'explicit' | 'mentioned';
 }
 
 const CLEARANCE_PATTERNS: { level: ClearanceLevel; re: RegExp }[] = [
@@ -79,12 +81,37 @@ const PATTERNS: { category: string; re: RegExp; label: (m: RegExpExecArray) => s
   { category: 'submission', re: /\b(submit(ted)?\s+(via|through|to)\s+(e-?mail|email|PIEE|SAM\.gov|eBuy|the\s+portal|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}))/gi, label: (m) => `Submission: ${m[1]}` },
   { category: 'travel', re: /\b(travel\s+(is\s+)?(required|anticipated|may\s+be\s+required)|CONUS\s+travel|OCONUS\s+travel)\b/gi, label: (m) => `Travel: ${m[1]}` },
   { category: 'key_personnel', re: /\bkey\s+personnel\b[^.]{0,120}/gi, label: () => 'Key personnel required' },
-  { category: 'certification', re: /\b(CMMI\s+(Level|ML)\s*\d|ISO\s*9001|ISO\s*27001|FedRAMP|CMMC\s+(Level\s*)?\d|PMP\s+certifi\w+|ITIL)\b/gi, label: (m) => `Certification: ${m[1]}` },
+  { category: 'certification', re: /\b(CMMI\s+(Level|ML)\s*\d|ISO\s*9001|ISO\s*27001|ISO\s*20000|PMP\s+certifi\w+|ITIL|AS\s*9100)\b/gi, label: (m) => `Certification: ${m[1]}` },
+  { category: 'security_compliance', re: /\bCMMC\s*(2\.0\s*)?(Level\s*|L)?([1-3])\b/gi, label: (m) => `CMMC Level ${m[3]}` },
+  { category: 'security_compliance', re: /\bFedRAMP(\s+(High|Moderate|Low|Li-?SaaS|Tailored))?(\s+(authori[sz]ation|authori[sz]ed|ATO|P-?ATO))?\b/gi, label: (m) => `FedRAMP${m[2] ? ` ${titleWord(m[2])}` : ''}${m[4] ? ' authorization' : ''}` },
+  { category: 'security_compliance', re: /\bNIST\s*(SP\s*)?800-(171|53|37|161|207)\b/gi, label: (m) => `NIST SP 800-${m[2]}` },
+  { category: 'security_compliance', re: /\b(DFARS\s*252\.204-70(12|19|20|21))\b/gi, label: (m) => `Cyber clause ${m[1].replace(/\s+/g, ' ')}` },
+  { category: 'security_compliance', re: /\bFISMA\b/g, label: () => 'FISMA compliance' },
+  { category: 'security_compliance', re: /\bSection\s*508\b/gi, label: () => 'Section 508 accessibility' },
+  { category: 'security_compliance', re: /\b(IL[2456]|Impact\s+Level\s+[2456])\b/g, label: (m) => `DoD cloud ${m[1].replace(/Impact\s+Level\s+/i, 'IL')}` },
+  { category: 'facility_clearance', re: /\b(DD\s*(Form\s*)?254|facility\s+(security\s+)?clearance|\bFCL\b)/gi, label: () => 'Facility clearance / DD-254 referenced' },
+  { category: 'citizenship', re: /\b(U\.?\s?S\.?\s+citizen(s|ship)?(\s+(is|are)\s+required|\s+only)?|must\s+be\s+(a\s+)?U\.?\s?S\.?\s+citizens?)\b/gi, label: () => 'U.S. citizenship requirement' },
+  { category: 'experience', re: /\b(minimum\s+(of\s+)?)?(\d{1,2})\+?\s*(years|yrs)\.?\s+(of\s+)?((\w+[\s/-]){0,4})experience\b/gi, label: (m) => `${m[3]}+ years ${m[6].trim() ? `${m[6].trim()} ` : ''}experience` },
+  { category: 'past_performance_requirement', re: /\b(\d{1,2}|one|two|three|four|five)\s+(\(\d\)\s+)?(recent\s+and\s+relevant\s+|relevant\s+)?(past\s+performance\s+(references|examples|projects|citations)|contracts?\s+of\s+similar\s+(size|scope))/gi, label: (m) => `Past performance: ${m[0].trim()}` },
+  { category: 'bonding_insurance', re: /\b((bid|performance|payment)\s+bonds?|bonding\s+capacity|(general\s+liability|professional\s+liability|workers'?\s+compensation|errors\s+and\s+omissions)\s+insurance)\b/gi, label: (m) => `Bonding/insurance: ${m[1]}` },
+  { category: 'transition', re: /\b(phase[\s-]in\s+(period|plan)|transition[\s-]in(\s+(period|plan))?|transition\s+(plan|period)|incumbent\s+capture)\b/gi, label: (m) => `Transition: ${m[1]}` },
+  { category: 'subcontracting_limit', re: /\b(limitations?\s+on\s+subcontracting|FAR\s*52\.219-14|50\s*(%|percent)\s+of\s+the\s+(cost|amount\s+paid))\b/gi, label: () => 'Limitations on subcontracting apply (prime must self-perform a minimum share)' },
+  { category: 'sole_source', re: /\b(intent(ion)?\s+to\s+(award|negotiate|issue)[^.]{0,80}sole[\s-]source|sole[\s-]source\s+(award|basis|procurement|acquisition|contract)|notice\s+of\s+intent\s+to\s+sole[\s-]source|other\s+than\s+full\s+and\s+open\s+competition)\b/gi, label: () => 'Intent to award sole source / other than full and open competition' },
+  { category: 'incumbent_mention', re: /\b(the\s+)?(current|incumbent)\s+(contractor|vendor)\s+(is|was)\s+([A-Z][A-Za-z0-9&.,' -]{2,60}?)(?=[.;,(\n]|\s+under|\s+on)/g, label: (m) => `Incumbent named in text: ${m[5].trim()}` },
+  { category: 'staffing', re: /\b(approximately|estimated|up\s+to|minimum\s+of)\s+(\d{1,4})\s+(FTEs?|full[\s-]time\s+equivalents?|personnel|staff|contractor\s+employees)\b/gi, label: (m) => `Staffing: ${m[1]} ${m[2]} ${m[3]}` },
   { category: 'mandatory', re: /\b(offerors?\s+(shall|must)\s+[^.]{10,160})/gi, label: (m) => m[1].trim() },
 ];
 
 function titleWord(s: string): string {
   return s.replace(/\s+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const EXPLICIT_RE = /\b(shall|must|required|mandatory|will\s+be\s+required|is\s+required|are\s+required|minimum|no\s+later\s+than|only)\b/i;
+
+/** "Explicit" when the evidence is phrased as an obligation; otherwise the text merely mentions it. */
+export function requirementStrength(quote: string, category: string): 'explicit' | 'mentioned' {
+  if (['page_limit', 'question_deadline', 'submission', 'subcontracting_limit', 'sole_source', 'mandatory'].includes(category)) return 'explicit';
+  return EXPLICIT_RE.test(quote) ? 'explicit' : 'mentioned';
 }
 
 /** Extract derived requirements from text with quoted evidence. Deduplicated by (category, text). */
@@ -114,5 +141,6 @@ export function extractRuleRequirements(text: string, maxPerCategory = 6): Detec
       push({ category: p.category, text: p.label(m).slice(0, 220), quote: snippetAround(text, m.index, m[0].length, 70) });
     }
   }
+  for (const r of out) r.strength = requirementStrength(r.quote, r.category);
   return out;
 }
