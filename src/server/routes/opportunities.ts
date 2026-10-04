@@ -5,7 +5,7 @@ import { HttpProblem, readJson, type AppDeps } from '../app';
 import { json } from '../db';
 import { analyzeOpportunity, createAiProvider } from '../ai/analyze';
 import { connectorPriorities } from '../connectors/registry';
-import { formatRange } from '../lib/money';
+import { toCsv } from '../lib/csv';
 import { chooseValue, recomputeOpportunity } from '../pipeline/canonical';
 import { recordEvent } from '../pipeline/events';
 import { upsertRelationship } from '../pipeline/resolve';
@@ -13,7 +13,9 @@ import { refreshOpportunity } from '../pipeline/sync';
 import { contributions, FEATURE_GROUP_LABELS, featureGroup, loadActiveModel } from '../scoring/preference';
 import { retrainAndRescore } from '../scoring/run';
 import { getLastVisit, includeGrantsDefault } from './meta';
+import { EXPORT_COLUMNS } from './bd';
 import { buildOpportunityQuery, DECISION_JOIN, LIST_COLUMNS, OpportunityFilters } from './query';
+import { recommendActions } from '../scoring/actions';
 
 // Debounced, single-flight preference retraining after decisions change.
 let retrainTimer: NodeJS.Timeout | null = null;
@@ -42,12 +44,6 @@ export function retrainState() {
   return { pending: !!retrainTimer || retrainPending, running: !!retraining };
 }
 
-function csvCell(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  const s = Array.isArray(v) ? v.join('; ') : v instanceof Date ? v.toISOString() : String(v);
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
 export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
   const { db } = deps;
 
@@ -71,41 +67,16 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
 
   app.get('/api/opportunities/export.csv', async (c) => {
     const { q } = await parseFilters(c.req.query());
-    const rows = await db.query<any>(`SELECT ${LIST_COLUMNS}, o.primary_url FROM opportunities o ${DECISION_JOIN} WHERE ${q.where} ORDER BY ${q.orderBy} LIMIT 20000`, q.params);
-    const cols: [string, (r: any) => unknown][] = [
-      ['Fit score', (r) => r.fit_score],
-      ['Preference score', (r) => r.preference_score],
-      ['Eligibility', (r) => r.eligibility_status],
-      ['Decision', (r) => r.decision],
-      ['Title', (r) => r.title],
-      ['Class', (r) => r.opportunity_class],
-      ['Stage', (r) => r.stage],
-      ['Intelligence signal (not a solicitation)', (r) => (r.is_signal ? 'YES' : '')],
-      ['Status', (r) => r.status],
-      ['Solicitation number', (r) => r.solicitation_number],
-      ['Department', (r) => r.department_name],
-      ['Sub-agency', (r) => r.subtier_name],
-      ['Office', (r) => r.office_name],
-      ['NAICS', (r) => r.naics_code],
-      ['PSC', (r) => r.psc_code],
-      ['Set-aside', (r) => r.set_aside ?? r.set_aside_code],
-      ['Value', (r) => formatRange(r.value_low, r.value_high)],
-      ['Value represents', (r) => r.value_label],
-      ['Value provenance', (r) => r.value_provenance],
-      ['Response deadline', (r) => r.response_deadline],
-      ['Posted', (r) => r.posted_at],
-      ['Place of performance', (r) => [r.place_city, r.place_state].filter(Boolean).join(', ')],
-      ['Incumbent', (r) => r.incumbent_name],
-      ['Sources', (r) => r.connector_ids],
-      ['Data completeness %', (r) => r.data_completeness],
-      ['Last changed', (r) => r.last_changed_at],
-      ['Source URL', (r) => r.primary_url],
-      ['Profile ID', (r) => r.id],
-    ];
-    const lines = [cols.map(([h]) => csvCell(h)).join(','), ...rows.map((r) => cols.map(([, f]) => csvCell(f(r))).join(','))];
+    const LIMIT = 50_000;
+    const rows = await db.query<any>(`SELECT ${LIST_COLUMNS}, o.primary_url, o.data_completeness FROM opportunities o ${DECISION_JOIN} WHERE ${q.where} ORDER BY ${q.orderBy} LIMIT ${LIMIT + 1}`, q.params);
+    // Never truncate silently: say so in a header and in the file itself.
+    const truncated = rows.length > LIMIT;
+    const body = toCsv(rows.slice(0, LIMIT), EXPORT_COLUMNS);
     c.header('Content-Type', 'text/csv; charset=utf-8');
     c.header('Content-Disposition', `attachment; filename="opportunities-${new Date().toISOString().slice(0, 10)}.csv"`);
-    return c.body(`\ufeff${lines.join('\r\n')}`);
+    if (truncated) c.header('X-GovCheck-Truncated', String(LIMIT));
+    return c.body(truncated ? `${body}
+"TRUNCATED: more than ${LIMIT} rows matched — narrow the filters or use the XLSX/backup export."` : body);
   });
 
   // ---------------------------------------------------------------------------
@@ -179,7 +150,7 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
         [id],
       ),
       db.query(
-        `SELECT r.id, r.category, r.text, r.provenance, r.page, r.section, r.evidence_quote, r.created_at, d.filename AS document_name, d.url AS document_url
+        `SELECT r.id, r.category, r.text, r.provenance, r.strength, r.page, r.section, r.evidence_quote, r.created_at, d.filename AS document_name, d.url AS document_url
          FROM opportunity_requirements r LEFT JOIN opportunity_documents d ON d.id = r.document_id WHERE r.opportunity_id = $1 AND r.is_current ORDER BY r.category, r.created_at`,
         [id],
       ),
@@ -252,8 +223,15 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
         )
       : [];
 
+    const capture = await db.one('SELECT * FROM opportunity_capture WHERE opportunity_id = $1', [id]);
+    const currentDecision = (decisions as any[]).find((d) => d.is_current) ?? null;
+    const recommendedActions = recommendActions({ opportunity: opp, documents, contacts, requirements, explanations, vendors, relationships, currentDecision, capture });
+
     return c.json({
       opportunity: opp,
+      capture,
+      recommendedActions,
+      dimensions: (score as any)?.dimensions ?? null,
       sources,
       provenance,
       fieldHistory: history.slice(0, 300),
@@ -272,7 +250,7 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
       components,
       explanations,
       decisions,
-      currentDecision: (decisions as any[]).find((d) => d.is_current) ?? null,
+      currentDecision,
       notes,
       tags: (tags as any[]).map((t) => t.tag),
       overrides,

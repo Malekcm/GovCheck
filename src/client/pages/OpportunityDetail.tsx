@@ -3,13 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import { AlertTriangle, CheckCircle2, ExternalLink, FileText, RefreshCw, Sparkles, XCircle } from 'lucide-react';
-import { CLASS_LABELS, EVENT_LABELS, PROVENANCE_RANK, SCORE_COMPONENT_LABELS, STAGE_LABELS, setAsideLabel, type Provenance, type ScoreComponent, type Stage } from '../../shared/domain';
+import { CLASS_LABELS, EVENT_LABELS, PROVENANCE_RANK, PURSUIT_STAGES, PURSUIT_STAGE_LABELS, SCORE_COMPONENT_LABELS, STAGE_LABELS, setAsideLabel, type Provenance, type ScoreComponent, type Stage } from '../../shared/domain';
 import { api } from '../api';
 import { date, daysUntil, money, moneyRange, pct, relative, titleize } from '../format';
 import { DecisionControl } from '../components/DecisionControl';
-import { Card, ClassBadge, Deadline, EligibilityBadge, Empty, ErrorBox, ListInput, Loading, Modal, Prov, ProvenanceLegend, Score, SourceBadges, StageBadge, Term, toast } from '../components/ui';
+import { Card, ClassBadge, Deadline, Dimension, EligibilityBadge, Empty, ErrorBox, ListInput, Loading, Modal, Prov, ProvenanceLegend, Score, SourceBadges, StageBadge, Term, toast } from '../components/ui';
 
 const SECTIONS: [string, string][] = [
+  ['actions', 'Next actions'],
+  ['capture', 'Capture plan'],
   ['summary', 'Executive summary'],
   ['match', 'Why we match'],
   ['concerns', 'Gaps / concerns'],
@@ -44,7 +46,17 @@ const SCOPE_CATS: [string, string][] = [
   ['staffing', 'Staffing'],
   ['key_personnel', 'Key personnel'],
   ['certification', 'Certifications'],
+  ['security_compliance', 'Security / compliance (CMMC, FedRAMP, NIST, 508)'],
   ['clearance', 'Clearances'],
+  ['facility_clearance', 'Facility clearance'],
+  ['citizenship', 'Citizenship'],
+  ['experience', 'Experience requirements'],
+  ['past_performance_requirement', 'Past performance requirements'],
+  ['bonding_insurance', 'Bonding / insurance'],
+  ['transition', 'Transition / phase-in'],
+  ['subcontracting_limit', 'Limitations on subcontracting'],
+  ['sole_source', 'Sole-source intent'],
+  ['incumbent_mention', 'Incumbent mentioned in text'],
   ['travel', 'Travel'],
   ['location', 'Location / on-site'],
   ['performance_standard', 'Performance standards'],
@@ -126,6 +138,7 @@ function RequirementList({ items }: { items: any[] }) {
       {items.map((r) => (
         <li key={r.id}>
           {r.text} <Prov p={r.provenance} />
+          {r.strength && <span className={`badge ${r.strength === 'explicit' ? 'warn' : 'neutral'}`} title={r.strength === 'explicit' ? 'Phrased as an obligation (shall / must / required)' : 'Mentioned, not stated as an obligation'}>{r.strength}</span>}
           {(r.evidence_quote || r.document_name) && (
             <div className="evidence">
               {r.evidence_quote && `“${r.evidence_quote}”`}
@@ -259,6 +272,14 @@ export function OpportunityDetailPage() {
             <Link className="btn" to={`/opportunities/${o.id}/brief`}>
               <FileText size={14} /> Capture brief
             </Link>
+            <details className="menu">
+              <summary className="btn">Export</summary>
+              <div className="menu-pop">
+                <a href={`/api/opportunities/${o.id}/brief.md`}>Capture brief (Markdown)</a>
+                <a href={`/api/opportunities/${o.id}/export.json`}>Full dossier (JSON)</a>
+                <a href={`/api/opportunities/${o.id}/sources.json`}>Source records & versions (JSON)</a>
+              </div>
+            </details>
             {o.primary_url && (
               <a className="btn" href={o.primary_url} target="_blank" rel="noreferrer">
                 <ExternalLink size={14} /> Source
@@ -267,6 +288,9 @@ export function OpportunityDetailPage() {
           </div>
         </div>
         <div className="facts">
+          <Fact k="Review priority" tip="Review priority">
+            <Score value={o.priority_score} />
+          </Fact>
           <Fact k="Fit score" tip="Fit score">
             <Score value={o.fit_score} />
           </Fact>
@@ -323,6 +347,47 @@ export function OpportunityDetailPage() {
           ))}
         </nav>
         <div>
+          <Card id="actions" title="Scores & recommended next actions">
+            <div className="dims" style={{ marginBottom: 12 }}>
+              <Dimension label="Company fit" value={o.fit_score} factors={components.map((c: any) => ({ label: SCORE_COMPONENT_LABELS[c.component as ScoreComponent] ?? c.component, effect: Number(c.points), detail: `${Number(c.points).toFixed(1)}/${c.max_points}` }))} />
+              <div className="dim">
+                <div className="label">Eligibility</div>
+                <EligibilityBadge status={o.eligibility_status} />
+              </div>
+              <Dimension label="Attractiveness" value={o.attractiveness_score} factors={d.dimensions?.attractiveness?.factors} />
+              <Dimension label="Data confidence" value={o.confidence_score} factors={d.dimensions?.confidence?.factors} missing={d.dimensions?.confidence?.missing} />
+              <Dimension label="Review priority" value={o.priority_score} factors={d.dimensions?.priority?.factors} />
+            </div>
+            {d.dimensions?.priority?.factors?.some((f: any) => f.label === 'Eligibility' || f.label === 'Status') && (
+              <div className="callout warn small" style={{ marginBottom: 10 }}>
+                Ranked down: {d.dimensions.priority.factors.filter((f: any) => f.label === 'Eligibility' || f.label === 'Status').map((f: any) => f.detail).join(' · ')}
+              </div>
+            )}
+            {d.recommendedActions?.length ? (
+              <ul className="actions-list">
+                {d.recommendedActions.map((a: any, i: number) => (
+                  <li key={i}>
+                    <span className={`badge ${a.urgency === 'now' ? 'bad' : a.urgency === 'soon' ? 'warn' : 'neutral'}`}>{a.urgency}</span>
+                    <div>
+                      <strong>{a.action}</strong>
+                      <div className="why">{a.why}</div>
+                    </div>
+                    <span className="small muted nowrap">{a.due ? `by ${date(a.due)}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted small">No actions recommended (decision recorded or nothing outstanding).</p>
+            )}
+            {d.dimensions?.confidence?.missing?.length > 0 && (
+              <p className="small muted" style={{ marginTop: 8 }}>
+                <strong>What GovCheck could not determine:</strong> {d.dimensions.confidence.missing.join(' · ')}
+              </p>
+            )}
+          </Card>
+
+          <CaptureCard id={o.id} capture={d.capture} deadline={o.response_deadline} />
+
           {/* Executive summary */}
           <Card id="summary" title="Executive summary">
             {aiBrief?.work_summary || o.summary ? (
@@ -1003,7 +1068,18 @@ export function OpportunityDetailPage() {
                     <tr key={e.id}>
                       <td className="small nowrap">{date(e.detected_at, true)}</td>
                       <td>
-                        <span className="badge neutral">{EVENT_LABELS[e.event_type] ?? e.event_type}</span> {e.title}
+                        <span className={`badge ${['CANCELLED', 'DEADLINE_CHANGED', 'SCOPE_CHANGED', 'SET_ASIDE_CHANGED'].includes(e.event_type) ? 'warn' : 'neutral'}`}>{EVENT_LABELS[e.event_type] ?? e.event_type}</span> {e.title}
+                        {Array.isArray(e.detail?.addedSentences) && e.detail.addedSentences.length > 0 && (
+                          <details>
+                            <summary className="small muted">Show added text</summary>
+                            {e.detail.addedSentences.map((t: string, i: number) => (
+                              <div key={i} className="diff-add">
+                                {t}
+                              </div>
+                            ))}
+                            {e.detail.removedCount > 0 && <div className="small muted">{e.detail.removedCount} sentence(s) removed.</div>}
+                          </details>
+                        )}
                       </td>
                       <td className="small muted">{e.connector_name ?? ''}</td>
                     </tr>
@@ -1216,5 +1292,132 @@ function LinkModal({ oppId, onClose }: { oppId: string; onClose: () => void }) {
         </div>
       ))}
     </Modal>
+  );
+}
+
+/** Lightweight capture plan: stage, owner, probability, next action, partners, win themes, risks. */
+function CaptureCard({ id, capture, deadline }: { id: string; capture: any | null; deadline: string | null }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState<any>(() => ({
+    pursuit_stage: capture?.pursuit_stage ?? 'discovered',
+    owner: capture?.owner ?? '',
+    priority: capture?.priority ?? '',
+    win_probability: capture?.win_probability ?? '',
+    next_action: capture?.next_action ?? '',
+    next_action_date: capture?.next_action_date ? String(capture.next_action_date).slice(0, 10) : '',
+    bid_decision: capture?.bid_decision ?? '',
+    partners: capture?.partners ?? [],
+    win_themes: capture?.win_themes ?? '',
+    risks: capture?.risks ?? '',
+    questions: capture?.questions ?? '',
+    capture_notes: capture?.capture_notes ?? '',
+  }));
+  const set = (k: string, v: unknown) => setForm((f: any) => ({ ...f, [k]: v }));
+  const save = useMutation({
+    mutationFn: () =>
+      api.put(`/api/opportunities/${id}/capture`, {
+        ...form,
+        owner: form.owner || null,
+        priority: form.priority || null,
+        win_probability: form.win_probability === '' ? null : Number(form.win_probability),
+        next_action: form.next_action || null,
+        next_action_date: form.next_action_date || null,
+        bid_decision: form.bid_decision || null,
+        win_themes: form.win_themes || null,
+        risks: form.risks || null,
+        questions: form.questions || null,
+        capture_notes: form.capture_notes || null,
+      }),
+    onSuccess: () => {
+      toast('Capture plan saved (change history kept).');
+      qc.invalidateQueries({ queryKey: ['opportunity', id] });
+      qc.invalidateQueries({ queryKey: ['pipeline'] });
+    },
+    onError: (e: Error) => toast(e.message),
+  });
+  return (
+    <Card
+      id="capture"
+      title={
+        <h2>
+          Capture plan <Prov p="user_entered" />
+        </h2>
+      }
+      actions={
+        <button className="btn primary sm no-print" onClick={() => save.mutate()} disabled={save.isPending}>
+          Save
+        </button>
+      }
+    >
+      <div className="grid grid-3">
+        <label className="field">
+          Pursuit stage
+          <select value={form.pursuit_stage} onChange={(e) => set('pursuit_stage', e.target.value)}>
+            {PURSUIT_STAGES.map((s) => (
+              <option key={s} value={s}>
+                {PURSUIT_STAGE_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          Owner
+          <input type="text" value={form.owner} onChange={(e) => set('owner', e.target.value)} placeholder="BD lead" />
+        </label>
+        <label className="field">
+          Priority
+          <select value={form.priority} onChange={(e) => set('priority', e.target.value)}>
+            <option value="">—</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </label>
+        <label className="field">
+          Win probability (%)
+          <input type="number" min={0} max={100} value={form.win_probability} onChange={(e) => set('win_probability', e.target.value)} />
+        </label>
+        <label className="field">
+          Bid decision
+          <select value={form.bid_decision} onChange={(e) => set('bid_decision', e.target.value)}>
+            <option value="">—</option>
+            <option value="pending">Pending</option>
+            <option value="bid">Bid</option>
+            <option value="no_bid">No bid</option>
+          </select>
+        </label>
+        <label className="field">
+          Next action date {deadline && <span className="muted small">(response due {date(deadline)})</span>}
+          <input type="date" value={form.next_action_date} onChange={(e) => set('next_action_date', e.target.value)} />
+        </label>
+      </div>
+      <label className="field">
+        Next action
+        <input type="text" value={form.next_action} onChange={(e) => set('next_action', e.target.value)} placeholder="e.g. Call the small-business specialist; draft RFI response" />
+      </label>
+      <div className="field">
+        Partners / teammates
+        <ListInput value={form.partners} onChange={(v) => set('partners', v)} placeholder="Add a teaming partner" />
+      </div>
+      <div className="grid grid-2">
+        <label className="field">
+          Win themes
+          <textarea rows={3} value={form.win_themes} onChange={(e) => set('win_themes', e.target.value)} />
+        </label>
+        <label className="field">
+          Risks
+          <textarea rows={3} value={form.risks} onChange={(e) => set('risks', e.target.value)} />
+        </label>
+        <label className="field">
+          Open questions (for the CO / Q&A)
+          <textarea rows={3} value={form.questions} onChange={(e) => set('questions', e.target.value)} />
+        </label>
+        <label className="field">
+          Capture notes
+          <textarea rows={3} value={form.capture_notes} onChange={(e) => set('capture_notes', e.target.value)} />
+        </label>
+      </div>
+      {capture?.updated_at && <div className="small muted">Last updated {relative(capture.updated_at)}. Refreshes never modify the capture plan.</div>}
+    </Card>
   );
 }

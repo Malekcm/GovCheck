@@ -85,20 +85,57 @@ export function filenameFromDisposition(header: string | null): string | null {
   return plain ? plain[1].trim() : null;
 }
 
+/**
+ * Solicitation document concepts. The filename is the strongest signal (agencies name files
+ * "Attachment 3 - PWS.pdf", "Section L.docx"); the opening text is used only with stricter
+ * patterns, because phrases like "acknowledge all amendments" appear inside almost every RFP.
+ */
+const BY_NAME: [RegExp, string][] = [
+  [/amendment|\bamd\b|\bmod(ification)?\b|sf[\s_-]?30\b/, 'AMENDMENT'],
+  [/\bq\s*&\s*a\b|q\s*and\s*a|questions?[\s_-]+(and|&)[\s_-]+answers?|responses?[\s_-]+to[\s_-]+questions/, 'QA'],
+  [/section[\s_-]*l\b|instructions[\s_-]+to[\s_-]+offerors|proposal[\s_-]+instructions/, 'SECTION_L'],
+  [/section[\s_-]*m\b|evaluation[\s_-]+(criteria|factors)|basis[\s_-]+(of|for)[\s_-]+award/, 'SECTION_M'],
+  [/performance[\s_-]+work[\s_-]+statement|\bpws\b/, 'PWS'],
+  [/statement[\s_-]+of[\s_-]+objectives|\bsoo\b/, 'SOO'],
+  [/statement[\s_-]+of[\s_-]+work|\bsow\b/, 'SOW'],
+  [/\bclins?\b|price|pricing|cost[\s_-]+(sheet|schedule|model)|schedule[\s_-]+b\b|\bbid[\s_-]+schedule/, 'PRICING'],
+  [/past[\s_-]+performance[\s_-]+(questionnaire|survey)|\bppq\b|\bppirs?\b/, 'PAST_PERFORMANCE'],
+  [/dd[\s_-]*(form[\s_-]*)?254|security[\s_-]+(requirements|classification)/, 'SECURITY'],
+  [/wage[\s_-]+determination|\bwd[\s_-]?\d{4}|service[\s_-]+contract[\s_-]+act/, 'WAGE_DETERMINATION'],
+  [/sources[\s_-]+sought/, 'SOURCES_SOUGHT'],
+  [/\brfi\b|request[\s_-]+for[\s_-]+information/, 'RFI'],
+  [/\brfq\b|request[\s_-]+for[\s_-]+quot/, 'RFQ'],
+  [/\brfp\b|request[\s_-]+for[\s_-]+proposal|sf[\s_-]?1449|sf[\s_-]?33\b|solicitation/, 'RFP'],
+  [/nofo|notice[\s_-]+of[\s_-]+funding|funding[\s_-]+opportunity[\s_-]+announcement|full[\s_-]+announcement/, 'ANNOUNCEMENT'],
+  [/\bsf[\s_-]?\d{2,4}\b|\bform\b/, 'FORM'],
+];
+
+const BY_TEXT: [RegExp, string][] = [
+  [/^\s*(amendment\s+of\s+solicitation|amendment\s+(no\.?|number)\s*\d+)|standard\s+form\s+30\b/m, 'AMENDMENT'],
+  [/questions\s+and\s+answers|responses\s+to\s+(industry|vendor|offeror)?\s*questions/, 'QA'],
+  [/instructions,?\s+conditions,?\s+and\s+notices\s+to\s+offerors/, 'SECTION_L'],
+  [/evaluation\s+factors\s+for\s+award/, 'SECTION_M'],
+  [/performance\s+work\s+statement/, 'PWS'],
+  [/statement\s+of\s+objectives/, 'SOO'],
+  [/statement\s+of\s+work/, 'SOW'],
+  [/past\s+performance\s+(questionnaire|survey)/, 'PAST_PERFORMANCE'],
+  [/contract\s+security\s+classification\s+specification/, 'SECURITY'],
+  [/wage\s+determination\s+no/, 'WAGE_DETERMINATION'],
+  [/sources\s+sought/, 'SOURCES_SOUGHT'],
+  [/request\s+for\s+information/, 'RFI'],
+  [/request\s+for\s+quot/, 'RFQ'],
+  [/request\s+for\s+proposals?|solicitation\/contract\/order\s+for\s+commercial/, 'RFP'],
+  [/notice\s+of\s+funding\s+opportunity|funding\s+opportunity\s+announcement/, 'ANNOUNCEMENT'],
+];
+
 export function classifyDocument(filename: string | null, text: string | null): string {
-  const s = `${filename ?? ''} ${(text ?? '').slice(0, 3000)}`.toLowerCase();
-  if (/amendment|\bamd\b|sf[\s-]?30/.test(s)) return 'AMENDMENT';
-  if (/\bq\s*&\s*a\b|questions and answers|responses to questions/.test(s)) return 'QA';
-  if (/performance work statement|\bpws\b/.test(s)) return 'PWS';
-  if (/statement of objectives|\bsoo\b/.test(s)) return 'SOO';
-  if (/statement of work|\bsow\b/.test(s)) return 'SOW';
-  if (/price|pricing|cost\s+sheet|clin/.test(filename?.toLowerCase() ?? '')) return 'PRICING';
-  if (/past performance (questionnaire|survey)/.test(s)) return 'PAST_PERFORMANCE';
-  if (/sources sought/.test(s)) return 'SOURCES_SOUGHT';
-  if (/request for information|\brfi\b/.test(s)) return 'RFI';
-  if (/request for quot/.test(s) || /\brfq\b/.test(s)) return 'RFQ';
-  if (/request for proposal|\brfp\b|sf[\s-]?1449|sf[\s-]?33/.test(s)) return 'RFP';
-  if (/notice of funding|nofo|funding opportunity announcement|full announcement/.test(s)) return 'ANNOUNCEMENT';
-  if (/\bsf[\s-]?\d{2,4}\b|form\b/.test(filename?.toLowerCase() ?? '')) return 'FORM';
+  // Underscores are word characters for \b, so treat them (and dots) as separators.
+  const name = (filename ?? '')
+    .toLowerCase()
+    .replace(/\.[a-z0-9]{2,5}$/, '')
+    .replace(/[_.]+/g, ' ');
+  for (const [re, type] of BY_NAME) if (name && re.test(name)) return type;
+  const head = (text ?? '').slice(0, 2500).toLowerCase();
+  for (const [re, type] of BY_TEXT) if (head && re.test(head)) return type;
   return 'ATTACHMENT';
 }

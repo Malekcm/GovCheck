@@ -23,7 +23,7 @@ export async function computeCoverage(db: Db, opts: { companyNaics?: string[] } 
   const forecastOnly = await db.query<{ id: string; title: string; posted_at: string | null; fy_end: string | null }>(
     `SELECT o.id, o.title, o.posted_at,
        (SELECT max(date_value) FROM opportunity_dates d WHERE d.opportunity_id = o.id AND d.kind = 'forecast_award_fy' AND d.is_current) AS fy_end
-     FROM opportunities o WHERE o.merged_into_id IS NULL AND o.stage = 'forecast' AND o.connector_ids = ARRAY['gsa_forecast']::text[]
+     FROM opportunities o WHERE o.merged_into_id IS NULL AND o.stage = 'forecast' AND o.connector_ids <@ ARRAY['gsa_forecast','dhs_apfs']::text[] AND cardinality(o.connector_ids) > 0 AND o.status <> 'cancelled'
        AND NOT EXISTS (SELECT 1 FROM opportunity_relationships r WHERE r.status <> 'rejected' AND r.relationship_type IN ('forecast_of','possible_same_procurement') AND (r.from_opportunity_id = o.id OR r.to_opportunity_id = o.id))
        AND COALESCE(o.fit_score, 0) >= 30`,
   );
@@ -32,7 +32,7 @@ export async function computeCoverage(db: Db, opts: { companyNaics?: string[] } 
     add({
       type: overdue ? 'FORECAST_OVERDUE' : 'FORECAST_ONLY',
       key: `${overdue ? 'FORECAST_OVERDUE' : 'FORECAST_ONLY'}:${o.id}`,
-      title: overdue ? `Forecast award year has passed with no solicitation linked: ${o.title}` : `Exists in GSA Forecast, missing from SAM: ${o.title}`,
+      title: overdue ? `Forecast award year has passed with no solicitation linked: ${o.title}` : `Exists in an agency forecast, not yet on SAM: ${o.title}`,
       opportunityId: o.id,
       severity: overdue ? 'notice' : 'info',
     });
@@ -114,7 +114,7 @@ export async function computeCoverage(db: Db, opts: { companyNaics?: string[] } 
     add({ type: 'SOURCES_SOUGHT_NO_FOLLOWUP', key: `SOURCES_SOUGHT_NO_FOLLOWUP:${o.id}`, title: `Sources Sought/RFI over 90 days old with no linked solicitation: ${o.title}`, opportunityId: o.id, severity: 'notice' });
 
   for (const o of await db.query<{ id: string; title: string }>(
-    `SELECT o.id, o.title FROM opportunities o WHERE o.merged_into_id IS NULL AND o.stage IN ('solicitation','combined_synopsis') AND COALESCE(o.fit_score,0) >= 70 AND NOT ('gsa_forecast' = ANY(o.connector_ids))
+    `SELECT o.id, o.title FROM opportunities o WHERE o.merged_into_id IS NULL AND o.stage IN ('solicitation','combined_synopsis') AND COALESCE(o.fit_score,0) >= 70 AND NOT (o.connector_ids && ARRAY['gsa_forecast','dhs_apfs']::text[])
        AND NOT EXISTS (SELECT 1 FROM opportunity_relationships r WHERE r.status <> 'rejected' AND r.relationship_type = 'forecast_of' AND (r.from_opportunity_id = o.id OR r.to_opportunity_id = o.id))`,
   ))
     add({ type: 'NO_FORECAST_LINK', key: `NO_FORECAST_LINK:${o.id}`, title: `Strong-fit solicitation with no forecast linked: ${o.title}`, opportunityId: o.id, severity: 'info' });

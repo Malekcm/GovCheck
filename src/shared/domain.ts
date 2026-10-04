@@ -114,25 +114,65 @@ export const STAGE_DESCRIPTIONS: Record<Stage, string> = {
 export const ACTIONABLE_STAGES: Stage[] = ['solicitation', 'combined_synopsis', 'sources_sought', 'rfi', 'presolicitation', 'subcontract', 'grant_posted', 'special_notice'];
 export const PRE_SOLICITATION_STAGES: Stage[] = ['forecast', 'grant_forecast', 'recompete_signal', 'sources_sought', 'rfi', 'presolicitation'];
 
-export const DECISIONS = ['pursue', 'interested', 'watch', 'maybe', 'pass', 'not_relevant'] as const;
+/**
+ * BD decisions. The first block is what the UI offers; `interested`, `maybe` and
+ * `not_relevant` are kept so decisions recorded by earlier versions stay valid.
+ */
+export const DECISIONS = ['strong_pursue', 'pursue', 'partner_sub', 'watch', 'review_later', 'pass', 'not_eligible', 'duplicate_irrelevant', 'interested', 'maybe', 'not_relevant'] as const;
 export type Decision = (typeof DECISIONS)[number];
+export const PRIMARY_DECISIONS: Decision[] = ['strong_pursue', 'pursue', 'partner_sub', 'watch', 'review_later', 'pass', 'not_eligible', 'duplicate_irrelevant'];
 export const DECISION_LABELS: Record<Decision, string> = {
+  strong_pursue: 'Strong pursue',
   pursue: 'Pursue',
-  interested: 'Interested',
+  partner_sub: 'Partner / sub',
   watch: 'Watch',
-  maybe: 'Maybe',
+  review_later: 'Review later',
   pass: 'Pass',
+  not_eligible: 'Not eligible',
+  duplicate_irrelevant: 'Duplicate / irrelevant',
+  interested: 'Interested',
+  maybe: 'Maybe',
   not_relevant: 'Not relevant',
 };
-/** Soft training label for preference learning (probability the user wants this kind of work). */
-export const DECISION_LABEL_VALUE: Record<Decision, number> = {
-  pursue: 1,
+/** Decisions that count as an active pursuit (pipeline value, office history, etc.). */
+export const PURSUIT_DECISIONS: Decision[] = ['strong_pursue', 'pursue', 'partner_sub', 'interested'];
+/** Decisions that remove an opportunity from review queues. */
+export const CLOSED_DECISIONS: Decision[] = ['pass', 'not_eligible', 'duplicate_irrelevant', 'not_relevant'];
+/**
+ * Soft training label for preference learning (probability the user wants this kind of work).
+ * `null` = not a preference signal: "Not eligible" is a hard rule handled by eligibility, and
+ * "Duplicate / irrelevant" says nothing about the work itself. Neither trains the model.
+ */
+export const DECISION_LABEL_VALUE: Record<Decision, number | null> = {
+  strong_pursue: 1,
+  pursue: 0.95,
   interested: 0.85,
+  partner_sub: 0.75,
   watch: 0.65,
   maybe: 0.5,
+  review_later: null,
   pass: 0.12,
   not_relevant: 0,
+  not_eligible: null,
+  duplicate_irrelevant: null,
 };
+
+/** Lightweight BD capture pipeline (not a CRM). */
+export const PURSUIT_STAGES = ['discovered', 'reviewing', 'qualified', 'capture', 'bid_decision', 'proposal', 'submitted', 'awarded', 'lost', 'no_bid'] as const;
+export type PursuitStage = (typeof PURSUIT_STAGES)[number];
+export const PURSUIT_STAGE_LABELS: Record<PursuitStage, string> = {
+  discovered: 'Discovered',
+  reviewing: 'Reviewing',
+  qualified: 'Qualified',
+  capture: 'Capture',
+  bid_decision: 'Bid / no-bid',
+  proposal: 'Proposal',
+  submitted: 'Submitted',
+  awarded: 'Awarded',
+  lost: 'Lost',
+  no_bid: 'No bid',
+};
+export const OPEN_PURSUIT_STAGES: PursuitStage[] = ['discovered', 'reviewing', 'qualified', 'capture', 'bid_decision', 'proposal', 'submitted'];
 
 export const ELIGIBILITY_STATUSES = ['eligible', 'likely_eligible', 'unclear', 'likely_ineligible', 'ineligible'] as const;
 export type EligibilityStatus = (typeof ELIGIBILITY_STATUSES)[number];
@@ -194,6 +234,21 @@ export const EVENT_LABELS: Record<string, string> = {
   REMOVED_FROM_SOURCE: 'No longer returned by source',
   MERGED: 'Merged',
   LIFECYCLE: 'Lifecycle event',
+  SCOPE_CHANGED: 'Scope / description changed',
+  DATES_CHANGED: 'Key date changed',
+  CANCELLED: 'Cancelled',
+  SET_ASIDE_CHANGED: 'Set-aside changed',
+  SOLICITATION_RELEASED: 'Solicitation released',
+  QA_PUBLISHED: 'Q&A published',
+};
+
+/** Score dimensions shown side by side. Fit is never blended with the others. */
+export const SCORE_DIMENSION_LABELS: Record<'fit' | 'eligibility' | 'attractiveness' | 'confidence' | 'priority', string> = {
+  fit: 'Company fit',
+  eligibility: 'Eligibility',
+  attractiveness: 'Strategic attractiveness',
+  confidence: 'Data confidence',
+  priority: 'Review priority',
 };
 
 export const COVERAGE_SIGNAL_LABELS: Record<string, { label: string; description: string }> = {
@@ -283,6 +338,9 @@ export const GLOSSARY: Record<string, string> = {
   'Data completeness': 'How many of the important facts about this opportunity are known. Separate from fit.',
   'Fit score': 'Objective comparison of the opportunity against your company profile (0–100).',
   'Preference score': 'Fit score adjusted by what you have actually pursued and passed on.',
+  'Strategic attractiveness': 'How worthwhile the opportunity is if you can win it: size, timing/positioning, competition restriction, customer relationship and incumbent dynamics. Separate from fit.',
+  'Data confidence': 'How much GovCheck actually knows (official values, scope text, documents, deadlines) — low confidence means the scores rest on thin data.',
+  'Review priority': 'Ranking used for "Best" sort: the personalized score, capped when eligibility is doubtful so a keyword match never hides a hard restriction.',
 };
 
 export type Confidence = 'high' | 'medium' | 'low';

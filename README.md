@@ -44,7 +44,7 @@ Then open http://localhost:5173 and follow the **Setup guide**:
 
 Every step can be skipped and revisited from **Company profile**.
 
-Without any keys you still get live data from **GSA forecasts, SBA SUBNet, Grants.gov, USAspending** and the **SAM.gov bulk extract**. Adding `SAM_API_KEY` enables the live SAM Opportunities and Contract Awards APIs.
+Without any keys you still get live data from **GSA forecasts, DHS APFS forecasts, SBA SUBNet, Grants.gov, USAspending** and the **SAM.gov bulk extract**. Adding `SAM_API_KEY` enables the live SAM Opportunities and Contract Awards APIs.
 
 Production-style local run:
 
@@ -95,7 +95,7 @@ npm start                   # serves API + built UI on http://localhost:8787
 | Profiles | `opportunities` (canonical), `opportunity_identifiers`, `opportunity_sources`, `opportunity_field_values` (field-level provenance, conflicts kept), `opportunity_snapshots`, `opportunity_events`, `opportunity_relationships`, `opportunity_contacts`, `opportunity_locations`, `opportunity_dates`, `opportunity_financials`, `opportunity_documents`, `opportunity_requirements` |
 | Awards & entities | `awards`, `opportunity_awards`, `opportunity_vendors`, `vendors`, `agencies`, `agency_offices`, `contacts` |
 | Scoring & learning | `match_scores`, `match_score_components`, `match_explanations`, `score_history`, `preference_models`, `preference_weights` |
-| User data | `user_opportunity_decisions` (full history), `user_feedback_reasons`, `user_notes`, `user_tags`, `user_field_overrides`, `watchlists` (saved views), `merge_decisions` (journaled, undoable) |
+| User data | `user_opportunity_decisions` (full history), `user_feedback_reasons`, `user_notes`, `user_tags`, `user_field_overrides`, `watchlists` (saved views), `merge_decisions` (journaled, undoable), `opportunity_capture` + `opportunity_capture_history` (capture pipeline, journaled) |
 | Intelligence | `coverage_signals`, `ai_analyses` (cached by content hash), `app_state` |
 
 ---
@@ -118,6 +118,8 @@ See [`.env.example`](.env.example) for the complete annotated list.
 | `SESSION_SECRET` | — | Cookie signing secret. |
 | `SCHEDULER_ENABLED` | — | In-process scheduler (default on when `NODE_ENV=production`). |
 | `PORT`, `APP_BASE_URL` | — | Server port / public URL. |
+
+**SSRF protection:** custom feed URLs, document links and robots.txt lookups may only reach public hosts — every redirect hop is re-checked; loopback, private, link-local (cloud metadata) and reserved ranges are refused. **Exports** neutralize spreadsheet formulas (CSV/XLSX injection) and never truncate silently.
 
 **Secrets never reach the browser.** The UI only receives booleans (“configured / not configured”). Logged messages are redacted (`api_key=`, bearer tokens, connection strings and the values of all secret env vars).
 
@@ -164,8 +166,9 @@ All sources implement one adapter interface (`src/server/connectors/types.ts`):
 | **SAM.gov Contract Opportunities API** | Official API | `SAM_API_KEY` | All notice types (sources sought, RFI, presolicitation, solicitation, combined synopsis, special notices, award notices), full agency hierarchy, NAICS, PSC, set-aside, place of performance, contacts, resource links, award data | Ingests *all* notices in the posted-date window (not keyword-filtered). 3-day overlap. Budgeted & resumable. Self-detects whether `offset` is a page index or a record offset. |
 | **SAM.gov Data Services (bulk CSV)** | Official bulk file | — | Full daily extract (~220 MB) incl. full description text; archived fiscal-year files | Reconciliation only (weekly by default). Streams, decodes Windows-1252, filters to notices posted in `SAM_BULK_LOOKBACK_DAYS` or still open; unchanged rows skipped by hash. Archived FY import filtered to your NAICS groups. |
 | **SAM.gov Contract Awards API** | Official API | `SAM_API_KEY` | PIID, modifications, IDV, solicitation ID, obligations, base+options, pricing type, competition, offers, business size, awardee UEI/CAGE | Incremental by last-modified date for your NAICS; targeted lookups by solicitation ID/PIID during opportunity refresh. Award families keyed by IDV+PIID. |
-| **USAspending.gov** | Official API | — | Prime awards, obligations, outlays, periods of performance, recipients, agencies, solicitation identifiers, subaward counts | Scheduled **recompete scan**: for each profile NAICS, binary-searches the End-Date-sorted results to the first contract ending after today, then walks forward to the 18-month horizon. Also used for incumbent, pricing and agency analysis. Executive-compensation names are stripped (personal data). |
-| **GSA Acquisition Gateway Forecasts** | Public JSON listing | — | Government-wide procurement forecasts: agency, sub-agency, NAICS, value band, award FY, acquisition strategy, award status (incl. recompete hints) | Forecast **detail pages require a login.gov session and are not accessed**, so forecast contacts are not collected. Page-view counters are excluded from snapshots to avoid false “changes”. |
+| **USAspending.gov** | Official API | — | Prime awards **and IDVs (IDIQ/GWAC/BPA/FSS)**, obligations, outlays, periods of performance, recipients, agencies, solicitation identifiers, subaward counts | Scheduled **recompete scan**: for each profile NAICS, binary-searches the End-Date-sorted contracts (and *Last Date to Order*-sorted IDVs) to the first one ending after today, then walks forward to the 18-month horizon. Also used for incumbent, pricing and agency analysis. Executive-compensation names are stripped (personal data). |
+| **GSA Acquisition Gateway Forecasts** | Public JSON listing | — | Government-wide procurement forecasts: agency, sub-agency, NAICS, value band, award FY, acquisition strategy, award status (incl. recompete hints; *Exercise of Option* flagged as not a new competition) | Forecast **detail pages require a login.gov session and are not accessed**, so forecast contacts are not collected. Page-view counters are excluded from snapshots to avoid false “changes”. **The live listing repeats page 2 as page 1** — the connector measures unique vs. reported records and marks the source *degraded* with the coverage % rather than green. |
+| **DHS Acquisition Planning Forecast System (APFS)** | Public JSON API | — | ~600 DHS forecasts (CBP, ICE, TSA, USCG, FEMA, CISA…): dollar range, vehicle, set-aside program, **estimated solicitation release**, anticipated award, estimated PoP, **requirements + small-business contacts**, and for follow-ons the **incumbent contractor + contract number** | One request per run (full list). Incumbent contract numbers link exactly to award history and recompete signals. *No Longer Required* → cancelled. Missing forecasts are marked not-seen, never deleted; a collapsed listing degrades the source instead. |
 | **SBA SUBNet** | Permitted public pages | — | Subcontracting opportunities by large primes: prime, title, description, closing/start dates, place, NAICS, contact, attachments | No API/feed exists. Respects robots.txt, ≥2s between requests, detail page fetched only when the listing row changed. Class = **SUBCONTRACT**. SBA's robots.txt disallows `/sites/default/files/*`, so attachments are linked, **not downloaded**. |
 | **Grants.gov** | Official API | — | Forecasted & posted grants: number, agency, dates, instruments, categories, eligibility, ceiling/floor/total funding, expected awards, ALN, contacts, attachments | Runs only if *Include grants* is on. Visually distinct from contracts. |
 | **Custom public feeds** | RSS/Atom/JSON/CSV | — | Agency forecasts, OSDBU pages, state/county/municipal portals, transit authorities, universities | Add from *Sources & sync → Add public feed* with field mapping. robots.txt honoured. No authenticated/CAPTCHA portals. |
@@ -190,7 +193,8 @@ after all sources: recompete engine ─▶ score ─▶ USAspending enrichment (
 - **Incremental** syncs use per-source cursors (persisted after every page, so interrupted runs resume) with an overlap window. **Reconciliation** (bulk CSV, full forecast listing) runs separately.
 - **Entity resolution**: exact matches on notice ID, solicitation number (agency-compatible only), PIID/award number, forecast ID, grant IDs, SUBNet IDs. Identifier normalization is conservative (only spaces/hyphens/periods/underscores stripped from contract-style IDs; placeholders like `TBD`/`N/A` and IDs < 5 characters never match). Probabilistic matches (title/description TF-IDF, office, NAICS, PSC, set-aside, dates, values, place) produce **suggested** relationships with confidence and evidence in **Merge Review**: *Merge, Keep separate, Link as related, Mark predecessor/successor, Undo merge*.
 - **Canonical values**: provenance precedence (user > official > derived > AI > estimated), then lifecycle stage (a solicitation's deadline supersedes a sources-sought deadline), then source priority, then recency. Conflicting official values are all kept and flagged.
-- **Change detection** emits events: NEW_OPPORTUNITY, NEW_SOURCE, STATUS/STAGE/DEADLINE/VALUE/CONTACT/FIELD changes, NEW_DOCUMENT, DOCUMENT_UPDATED, AMENDMENT, AWARD_POSTED, FORECAST_LINKED, INCUMBENT_IDENTIFIED, RECOMPETE_SIGNAL, RELATIONSHIP_FOUND, REMOVED_FROM_SOURCE.
+- **Change detection** emits events: NEW_OPPORTUNITY, NEW_SOURCE, STATUS/STAGE/DEADLINE/VALUE/CONTACT/FIELD changes, **SCOPE_CHANGED** (sentence-level description diff with the added text; whitespace/markup-only edits ignored), **DATES_CHANGED** (questions due, PoP start/end, expected solicitation), **SET_ASIDE_CHANGED**, **SOLICITATION_RELEASED**, **CANCELLED** (derived from the notice text — SAM has no structured flag), NEW_DOCUMENT, DOCUMENT_UPDATED, **QA_PUBLISHED**, AMENDMENT, AWARD_POSTED, FORECAST_LINKED, INCUMBENT_IDENTIFIED, RECOMPETE_SIGNAL, RELATIONSHIP_FOUND, REMOVED_FROM_SOURCE. New snapshot keys are only compared when both snapshots have them, so upgrades never produce a burst of false changes.
+- **Coverage warnings**: a connector that cannot see everything the source says exists (duplicate pages, collapsed listings) reports a warning; the run becomes *partial_success*, the source *degraded*, and the warning is logged and shown on **Data quality**.
 - Records that disappear from a full listing are marked **not seen** — never deleted.
 
 Manual controls: **Refresh all sources** (top bar), per-source **Sync/Reconcile/Test** (Sources page), **Refresh this opportunity** (dossier: re-fetches each contributing record by identifier, pulls SAM awards by solicitation ID, USAspending history, documents, re-scores — user data untouched).
@@ -214,6 +218,7 @@ npx tsx src/server/cli.ts score  # rescore everything
 | SAM Opportunities API | every 6 h (budget-aware) |
 | SAM Contract Awards | daily |
 | GSA forecasts | daily (+ weekly full reconciliation) |
+| DHS APFS forecasts | daily |
 | SBA SUBNet | daily |
 | Grants.gov | daily |
 | USAspending recompete scan | daily |
@@ -245,6 +250,10 @@ Only one sync runs at a time; runs left “running” by a restart are marked fa
 
 **Eligibility** (separate from the score): *Eligible, Likely eligible, Unclear, Likely ineligible, Ineligible*. Hard signals — set-aside vs your **confirmed** certifications/business size, clearance requirements detected in text vs your clearances, contract-vehicle restrictions vs vehicles you hold, SAM registration status, grant applicant types. *Ineligible* is only used when an official restriction conflicts with something you explicitly confirmed; ambiguous or text-derived evidence yields *Unclear* with what to verify. Pre-solicitation records are at most *Likely eligible*.
 
+**Separate score dimensions** (never blended into fit): **Strategic attractiveness** (value vs. your range, timing/positioning, competition restriction you qualify for, customer relationship, incumbent dynamics, option-exercise / sole-source / cancellation penalties), **Data confidence** (completeness, scope text, parsed documents, official vs. inferred value, corroborating sources, open eligibility questions — with the list of what is missing), and **Review priority** = 80 % personalized fit + 20 % attractiveness, then **capped by eligibility** (*Ineligible* ≤ 10, *Likely ineligible* × 0.5, *Unclear* × 0.85) and by status (cancelled/expired × 0.4). The default “Best” sort and the dashboard use review priority, so a keyword-perfect 8(a) set-aside you cannot bid never outranks work you can win. Every point is explained in the dossier.
+
+**Recommended next actions** are generated deterministically (no AI needed) from stage, deadlines, eligibility flags, documents, contacts and incumbent status — each with the reason.
+
 **Discovery reasons** (“Why we found it”) list sources, profile matches, related history (same office as past pursuits, linked awards, forecasts) and signals (expiring contracts, non-SAM-only records).
 
 **Data completeness** is a separate 0–100 measure of how much is known (agency, scope, value, deadline, NAICS, PSC, set-aside, contacts, documents, award history, incumbent, duration, evaluation criteria, place).
@@ -257,7 +266,8 @@ Only one sync runs at a time; runs left “running” by a restart are marked fa
 
 ## How preference learning works
 
-- Every decision (*Pursue, Interested, Watch, Maybe, Pass, Not relevant*) with optional reasons and free text is stored permanently with full history; changing PASS → PURSUE keeps both records and retrains.
+- Every decision (*Strong pursue, Pursue, Partner/Sub, Watch, Review later, Pass, Not eligible, Duplicate/irrelevant*; legacy *Interested/Maybe/Not relevant* remain valid) with structured reasons (e.g. *agency relationship, incumbent displacement, wrong technology, no past performance, impossible deadline, vehicle/clearance unavailable, incumbent too strong, not profitable, outside strategy*) and free text is stored permanently with full history; changing PASS → PURSUE keeps both records and retrains. *Not eligible*, *Duplicate* and *Review later* are recorded but **do not train** the preference model (they say nothing about what work you want).
+- **Capture pipeline** (Discovered → Reviewing → Qualified → Capture → Bid/No-bid → Proposal → Submitted → Awarded/Lost/No-bid) with owner, priority, win probability, next action/date, proposal deadline, partners, win themes, risks and questions. Every edit is journaled; refreshes never touch it; merges carry it (and undo returns it).
 - Each opportunity has an interpretable feature vector: fit-component ratios, agency/sub-agency/office, NAICS & NAICS group, PSC group, stage, class, set-aside, value band, state, contract vehicle, clearance, on-site, matched capabilities and capability areas, incumbent presence.
 - An **L2-regularized logistic regression** (soft labels: pursue 1.0 … not relevant 0.0) is trained on your current decisions. **Reasons add targeted samples** restricted to the feature groups each reason speaks to (e.g. *Too large* → value band; *Wrong agency* → agency/office).
 - **Preference score** = (1 − α)·fit + α·100·p(pursue), with α growing with evidence: 0 decisions → 0; 1–9 → 0.06 (≈ base); 10–24 → 0.2; 25–49 → 0.35; 50+ → 0.55. Base fit is never modified.
@@ -319,7 +329,7 @@ npm run build
 npm run check       # all of the above
 ```
 
-The suite (in-memory Postgres via PGlite + recorded real API fixtures) covers: SAM API & bulk normalization, SAM Contract Awards & USAspending normalization, GSA/SUBNet/Grants/RSS normalizers, identifier normalization, exact solicitation matching, cross-agency solicitation collisions, PIID matching, award linking with provenance, duplicate prevention, probabilistic relationship scoring (no auto-merge), merge + undo, raw snapshot retention, change detection, refresh preserving decisions/notes/tags, not-seen marking, coverage signals, explainable scoring & weights, eligibility rules, preference learning direction & decision history, retraining with PASS→PURSUE, failed-connector isolation, robots.txt compliance, USAspending page binary search, API secret non-exposure, password/cron auth, and a smoke test of every read endpoint.
+The suite (in-memory Postgres via PGlite + recorded real API fixtures) covers: SAM API & bulk normalization, SAM Contract Awards & USAspending normalization, GSA/SUBNet/Grants/RSS normalizers, identifier normalization, exact solicitation matching, cross-agency solicitation collisions, PIID matching, award linking with provenance, duplicate prevention, probabilistic relationship scoring (no auto-merge), merge + undo, raw snapshot retention, change detection, refresh preserving decisions/notes/tags, not-seen marking, coverage signals, explainable scoring & weights, eligibility rules, preference learning direction & decision history, retraining with PASS→PURSUE, failed-connector isolation, robots.txt compliance, USAspending page binary search, API secret non-exposure, password/cron auth, and a smoke test of every read endpoint. `tests/bd.test.ts` adds: DHS APFS normalization and exact incumbent/recompete linking, not-seen handling, GSA duplicate-page coverage warnings, scope-change detection (and no-noise on whitespace), derived cancellation, solicitation-released, upgrade-safe snapshots, sole-source detection, attractiveness/confidence/priority with eligibility capping, non-training decisions, capture journaling through refresh/merge/undo, compliance requirement extraction with explicit/mentioned strength, document classification, recommended actions, IDV end dates, SSRF guards, CSV formula neutralization, and every new endpoint/export.
 
 ---
 
@@ -340,6 +350,10 @@ The suite (in-memory Postgres via PGlite + recorded real API fixtures) covers: S
 | Reset local data | Stop the server and delete `data/pglite` (export a backup first). |
 
 ---
+
+## Coverage matrix
+
+See [`docs/SOURCE_COVERAGE.md`](docs/SOURCE_COVERAGE.md) for the per-source **raw → ingested → stored → displayed → missing** matrix, remaining gaps, sources that must not be scraped, keys to obtain, cadence and storage estimates, and [`docs/AUDIT_2026-10.md`](docs/AUDIT_2026-10.md) for the BD audit report.
 
 ## Known limitations
 

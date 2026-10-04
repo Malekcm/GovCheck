@@ -58,7 +58,7 @@ export async function robotsAllows(http: HttpClient, url: string): Promise<{ all
   let rules = cache.get(key);
   if (!rules || Date.now() - rules.fetchedAt > 6 * 3600_000) {
     try {
-      const res = await http.request<string>({ url: `${u.origin}/robots.txt`, responseType: 'text', retries: 1, timeoutMs: 15_000 });
+      const res = await http.request<string>({ url: `${u.origin}/robots.txt`, responseType: 'text', retries: 1, timeoutMs: 15_000, maxBytes: 512 * 1024, publicOnly: true });
       rules = parseRobots(res.data);
     } catch {
       rules = { disallow: [], allow: [], fetchedAt: Date.now() };

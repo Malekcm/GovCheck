@@ -37,7 +37,7 @@ export interface RunSummary {
 }
 
 /** Connectors whose incremental run lists everything currently active (so absence is meaningful). */
-const FULL_LISTING_CONNECTORS = new Set(['sba_subnet', 'grants_gov']);
+const FULL_LISTING_CONNECTORS = new Set(['sba_subnet', 'grants_gov', 'dhs_apfs']);
 
 export async function focusFor(db: Db): Promise<ConnectorContext['focus']> {
   const co = await loadCompanyContext(db);
@@ -123,6 +123,7 @@ export async function runConnector(
   let apiRequests = 0;
   let fatal: string | null = null;
   let budgetHit = false;
+  const warnings: string[] = [];
   const flush = async () => {
     await db.query(
       `UPDATE sync_runs SET records_retrieved = $2, records_created = $3, records_updated = $4, records_unchanged = $5, records_failed = $6,
@@ -136,6 +137,10 @@ export async function runConnector(
     for await (const page of pages) {
       apiRequests += page.apiRequests ?? 0;
       if (page.note) notes.push(page.note);
+      if (page.warning) {
+        warnings.push(page.warning);
+        await logSyncError(db, runId, connectorId, 'coverage', page.warning, null, null, false);
+      }
       stats.retrieved += page.records.length;
       let toProcess = page.records;
       if (page.records.length > 50) {
@@ -177,11 +182,11 @@ export async function runConnector(
   }
 
   const processed = stats.created + stats.updated + stats.unchanged;
-  const status: RunSummary['status'] = fatal ? (processed > 0 ? 'partial_success' : 'failed') : stats.failed > 0 || budgetHit ? 'partial_success' : 'success';
+  const status: RunSummary['status'] = fatal ? (processed > 0 ? 'partial_success' : 'failed') : stats.failed > 0 || budgetHit || warnings.length ? 'partial_success' : 'success';
   if (status === 'success' && mode === 'incremental' && FULL_LISTING_CONNECTORS.has(connectorId) && stats.retrieved > 0) {
     await markUnseen(db, connectorId, new Date(started));
   }
-  const message = [fatal ? `Error: ${fatal}` : null, ...notes.slice(-4)].filter(Boolean).join(' · ') || 'Completed.';
+  const message = [fatal ? `Error: ${fatal}` : null, ...warnings.slice(0, 3).map((w) => `Coverage warning: ${w}`), ...notes.slice(-4)].filter(Boolean).join(' · ') || 'Completed.';
   await flush();
   await db.query(`UPDATE sync_runs SET status = $2, finished_at = now(), duration_ms = $3, message = $4, cursor_after = $5::jsonb WHERE id = $1`, [runId, status, Date.now() - started, message.slice(0, 2000), json(cursor)]);
   const health = status === 'success' ? 'healthy' : status === 'partial_success' ? 'degraded' : 'error';

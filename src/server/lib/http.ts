@@ -1,4 +1,5 @@
 import { redact } from './logger';
+import { assertPublicUrl, UnsafeUrlError } from './urlSafety';
 
 export interface HttpRequest {
   url: string;
@@ -15,6 +16,11 @@ export interface HttpRequest {
   /** Abort early if the response is larger than this (buffer/text). */
   maxBytes?: number;
   redirect?: 'follow' | 'manual';
+  /**
+   * SSRF guard for URLs that come from configuration or third-party data (custom feeds,
+   * document links): the URL and every redirect hop must resolve to a public address.
+   */
+  publicOnly?: boolean;
 }
 
 export interface HttpResponse<T = unknown> {
@@ -77,14 +83,9 @@ export class FetchHttpClient implements HttpClient {
       await this.throttle(host, req.hostDelayMs ?? 250);
       let res: Response;
       try {
-        res = await fetch(req.url, {
-          method: req.method ?? 'GET',
-          headers: { 'User-Agent': this.opts.userAgent ?? userAgent(), Accept: '*/*', ...req.headers },
-          body: req.body,
-          redirect: req.redirect ?? 'follow',
-          signal: AbortSignal.timeout(timeoutMs),
-        });
+        res = await this.fetchOnce(req, timeoutMs);
       } catch (err) {
+        if (err instanceof UnsafeUrlError) throw new HttpError(`Blocked unsafe URL ${safeUrl}: ${err.message}`, null, safeUrl, false);
         const msg = err instanceof Error ? err.message : String(err);
         const isTimeout = /timeout|aborted/i.test(msg);
         lastErr = new HttpError(`${isTimeout ? 'Timed out' : 'Network error'} calling ${safeUrl}: ${redact(msg)}`, null, safeUrl, true);
@@ -130,6 +131,28 @@ export class FetchHttpClient implements HttpClient {
       }
     }
     throw lastErr ?? new HttpError(`Request failed: ${safeUrl}`, null, safeUrl, false);
+  }
+
+  /** One attempt. With `publicOnly`, redirects are followed manually so every hop is re-validated. */
+  private async fetchOnce(req: HttpRequest, timeoutMs: number): Promise<Response> {
+    const init = (): RequestInit => ({
+      method: req.method ?? 'GET',
+      headers: { 'User-Agent': this.opts.userAgent ?? userAgent(), Accept: '*/*', ...req.headers },
+      body: req.body,
+      redirect: req.publicOnly ? 'manual' : (req.redirect ?? 'follow'),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!req.publicOnly) return fetch(req.url, init());
+    let url = req.url;
+    for (let hop = 0; hop <= 5; hop++) {
+      await assertPublicUrl(url);
+      const res = await fetch(url, init());
+      const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+      if (!location || req.redirect === 'manual') return res;
+      await res.body?.cancel();
+      url = new URL(location, url).toString();
+    }
+    throw new UnsafeUrlError('Too many redirects.');
   }
 }
 

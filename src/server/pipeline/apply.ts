@@ -234,7 +234,7 @@ export function fieldInputsFor(n: NormalizedOpportunity): FieldInput[] {
     { field: 'opportunity_class', value: n.opportunityClass },
     { field: 'stage', value: n.stage, provenance: n.stageBasis ? 'derived' : 'official', basis: n.stageBasis ?? null },
     { field: 'notice_type', value: n.noticeType ?? null },
-    { field: 'status', value: n.status },
+    { field: 'status', value: n.status, provenance: n.statusBasis ? 'derived' : 'official', basis: n.statusBasis ?? null },
     { field: 'solicitation_number', value: sol },
     { field: 'notice_id', value: notice },
     { field: 'department', value: n.agency.department ?? null },

@@ -2,6 +2,7 @@ import type { AppConfig } from '../config';
 import type { Db } from '../db';
 import { json } from '../db';
 import { createFeedAdapter, type FeedConfig } from './genericFeed';
+import { dhsApfsAdapter } from './dhsApfs';
 import { gsaForecastAdapter } from './gsaForecast';
 import { grantsGovAdapter } from './grantsGov';
 import { samAwardsAdapter } from './sam/samAwards';
@@ -16,6 +17,7 @@ export const BUILTIN_ADAPTERS: SourceAdapter[] = [
   samOpportunitiesAdapter,
   samAwardsAdapter,
   gsaForecastAdapter,
+  dhsApfsAdapter,
   sbaSubnetAdapter,
   grantsGovAdapter,
   usaspendingAdapter,

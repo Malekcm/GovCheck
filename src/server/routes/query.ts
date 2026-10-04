@@ -47,7 +47,18 @@ export const OpportunityFilters = z.object({
   openOnly: bool,
   includeGrants: bool,
   vendorId: z.string().uuid().optional(),
-  sort: z.enum(['best', 'preference', 'deadline', 'newest', 'updated', 'value', 'agency', 'completeness']).optional(),
+  minAttractiveness: num,
+  minConfidence: num,
+  /** Period of performance (or incumbent contract) ends within N months from today. */
+  expiringWithinMonths: num,
+  incumbent: z.string().max(200).optional(),
+  noticeType: z.string().max(100).optional(),
+  changeType: csv,
+  captureStage: csv,
+  owner: z.string().max(120).optional(),
+  tag: z.string().max(40).optional(),
+  status: csv,
+  sort: z.enum(['best', 'fit', 'preference', 'attractiveness', 'confidence', 'deadline', 'newest', 'updated', 'value', 'agency', 'completeness', 'expiring', 'next_action']).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(500).optional(),
 });
@@ -123,9 +134,24 @@ export function buildOpportunityQuery(f: OpportunityFiltersT, ctx: { lastVisit: 
   if (f.newSinceVisit && ctx.lastVisit) where.push(`o.first_seen_at > ${p(ctx.lastVisit)}::timestamptz`);
   if (f.openOnly) where.push(`o.status IN ('active','forecast','signal') AND (o.response_deadline IS NULL OR o.response_deadline >= now())`);
   if (f.vendorId) where.push(`EXISTS (SELECT 1 FROM opportunity_vendors ov WHERE ov.opportunity_id = o.id AND ov.vendor_id = ${p(f.vendorId)})`);
+  if (f.minAttractiveness != null) where.push(`COALESCE(o.attractiveness_score, 0) >= ${p(f.minAttractiveness)}`);
+  if (f.minConfidence != null) where.push(`COALESCE(o.confidence_score, 0) >= ${p(f.minConfidence)}`);
+  if (f.expiringWithinMonths != null) where.push(`o.performance_end >= current_date AND o.performance_end <= current_date + (${p(f.expiringWithinMonths)}::int * interval '1 month')`);
+  if (f.incumbent) where.push(`(o.incumbent_name ILIKE ${p(`%${f.incumbent}%`)} OR EXISTS (SELECT 1 FROM opportunity_vendors ov JOIN vendors v ON v.id = ov.vendor_id WHERE ov.opportunity_id = o.id AND v.name ILIKE $${params.length}))`);
+  if (f.noticeType) where.push(`o.notice_type ILIKE ${p(`%${f.noticeType}%`)}`);
+  if (f.changeType?.length) where.push(`EXISTS (SELECT 1 FROM opportunity_events e WHERE e.opportunity_id = o.id AND e.event_type = ANY(${p(f.changeType)}::text[]) AND e.detected_at >= now() - (${p(f.changedWithinDays ?? 30)}::int * interval '1 day'))`);
+  if (f.captureStage?.length) where.push(`cap.pursuit_stage = ANY(${p(f.captureStage)}::text[])`);
+  if (f.owner) where.push(`cap.owner ILIKE ${p(`%${f.owner}%`)}`);
+  if (f.tag) where.push(`EXISTS (SELECT 1 FROM user_tags t WHERE t.opportunity_id = o.id AND t.tag ILIKE ${p(f.tag)})`);
+  if (f.status?.length) where.push(`o.status = ANY(${p(f.status)}::text[])`);
 
   const orderBy: Record<NonNullable<OpportunityFiltersT['sort']>, string> = {
-    best: 'o.fit_score DESC NULLS LAST, o.preference_score DESC NULLS LAST, o.last_changed_at DESC',
+    best: 'o.priority_score DESC NULLS LAST, o.fit_score DESC NULLS LAST, o.last_changed_at DESC',
+    fit: 'o.fit_score DESC NULLS LAST, o.preference_score DESC NULLS LAST, o.last_changed_at DESC',
+    attractiveness: 'o.attractiveness_score DESC NULLS LAST, o.priority_score DESC NULLS LAST',
+    confidence: 'o.confidence_score DESC NULLS LAST, o.priority_score DESC NULLS LAST',
+    expiring: 'o.performance_end ASC NULLS LAST, o.priority_score DESC NULLS LAST',
+    next_action: 'cap.next_action_date ASC NULLS LAST, o.response_deadline ASC NULLS LAST',
     preference: 'o.preference_score DESC NULLS LAST, o.fit_score DESC NULLS LAST',
     deadline: 'o.response_deadline ASC NULLS LAST, o.fit_score DESC NULLS LAST',
     newest: 'o.first_seen_at DESC',
@@ -137,10 +163,13 @@ export function buildOpportunityQuery(f: OpportunityFiltersT, ctx: { lastVisit: 
   return { where: where.join(' AND '), params, orderBy: orderBy[f.sort ?? 'best'] };
 }
 
-export const DECISION_JOIN = `LEFT JOIN LATERAL (SELECT decision, reasons, decided_at FROM user_opportunity_decisions ud WHERE ud.opportunity_id = o.id AND ud.is_current ORDER BY decided_at DESC LIMIT 1) d ON true`;
+/** Current decision (d) and capture record (cap) — both user-owned, never written by sync. */
+export const DECISION_JOIN = `LEFT JOIN LATERAL (SELECT decision, reasons, decided_at FROM user_opportunity_decisions ud WHERE ud.opportunity_id = o.id AND ud.is_current ORDER BY decided_at DESC LIMIT 1) d ON true
+  LEFT JOIN opportunity_capture cap ON cap.opportunity_id = o.id`;
 
 export const LIST_COLUMNS = `o.id, o.title, o.opportunity_class, o.stage, o.notice_type, o.status, o.is_signal, o.solicitation_number, o.department_name, o.subtier_name, o.office_name,
   o.agency_id, o.subagency_id, o.office_id, o.naics_code, o.psc_code, o.set_aside_code, o.set_aside, o.value_low, o.value_high, o.value_provenance, o.value_label,
   o.response_deadline, o.posted_at, o.last_changed_at, o.first_seen_at, o.fit_score, o.preference_score, o.eligibility_status, o.connector_ids, o.data_completeness,
   o.has_documents, o.has_incumbent, o.incumbent_name, o.recompete_signal, o.place_state, o.place_city, o.contract_vehicle, o.performance_end, o.seen_status,
-  d.decision, d.reasons AS decision_reasons`;
+  o.attractiveness_score, o.confidence_score, o.priority_score,
+  d.decision, d.reasons AS decision_reasons, cap.pursuit_stage, cap.owner AS capture_owner, cap.next_action, cap.next_action_date`;

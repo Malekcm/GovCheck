@@ -1,8 +1,9 @@
 import { PROVENANCE_RANK, STAGE_LABELS, STAGE_ORDER, type Provenance, type Stage } from '../../shared/domain';
 import type { Db } from '../db';
 import { json } from '../db';
-import { contentHash, stableStringify } from '../lib/hash';
+import { contentHash, sha256, stableStringify } from '../lib/hash';
 import { formatRange } from '../lib/money';
+import { htmlToText } from '../lib/text';
 import { resolveAgency } from './entities';
 import { computeCompleteness } from './completeness';
 import { recordEvent } from './events';
@@ -50,6 +51,45 @@ export function chooseValue(values: FV[], field: string, priorities: Map<string,
     return new Date(b.observed_at).getTime() - new Date(a.observed_at).getTime();
   });
   return sorted[0];
+}
+
+/**
+ * Scope fingerprint used for change detection: sentence-level hashes of the normalized
+ * description text. Whitespace, case and markup changes produce identical fingerprints, so
+ * cosmetic edits at the source do not create "scope changed" noise.
+ */
+export function scopeSentences(description: string | null | undefined): { text: string; hash: string }[] {
+  const plain = htmlToText(description ?? '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+/g, ' ');
+  const out: { text: string; hash: string }[] = [];
+  const seen = new Set<string>();
+  for (const raw of plain.split(/(?<=[.!?;:])\s+|\n+/)) {
+    const text = raw.trim();
+    const norm = text.toLowerCase().replace(/[^a-z0-9$%]+/g, ' ').trim();
+    if (norm.length < 12) continue;
+    const hash = sha256(norm).slice(0, 12);
+    if (seen.has(hash)) continue;
+    seen.add(hash);
+    out.push({ text, hash });
+    if (out.length >= 600) break;
+  }
+  return out;
+}
+
+function dayOf(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null;
+  const d = v instanceof Date ? v : new Date(String(v));
+  return Number.isNaN(d.getTime()) ? String(v).slice(0, 10) : d.toISOString().slice(0, 10);
+}
+
+export function diffScope(prevHashes: string[], next: { text: string; hash: string }[]): { added: string[]; removedCount: number; changeRatio: number } {
+  const prev = new Set(prevHashes);
+  const nextSet = new Set(next.map((s) => s.hash));
+  const added = next.filter((s) => !prev.has(s.hash)).map((s) => s.text);
+  const removedCount = prevHashes.filter((h) => !nextSet.has(h)).length;
+  const base = Math.max(prevHashes.length, next.length, 1);
+  return { added, removedCount, changeRatio: (added.length + removedCount) / (2 * base) };
 }
 
 interface Headline {
@@ -156,7 +196,9 @@ export async function recomputeOpportunity(db: Db, opportunityId: string, opts: 
        (SELECT v.name FROM opportunity_vendors ov JOIN vendors v ON v.id = ov.vendor_id WHERE ov.opportunity_id = $1 AND ov.role IN ('confirmed_incumbent','awardee') ORDER BY ov.created_at LIMIT 1) AS confirmed_incumbent,
        (SELECT v.name FROM opportunity_vendors ov JOIN vendors v ON v.id = ov.vendor_id WHERE ov.opportunity_id = $1 AND ov.role = 'possible_incumbent' ORDER BY ov.created_at LIMIT 1) AS possible_incumbent,
        (SELECT min(date_value) FROM opportunity_dates WHERE opportunity_id = $1 AND is_current AND kind = 'performance_start') AS pop_start,
-       (SELECT max(date_value) FROM opportunity_dates WHERE opportunity_id = $1 AND is_current AND kind IN ('performance_end','potential_end')) AS pop_end`,
+       (SELECT max(date_value) FROM opportunity_dates WHERE opportunity_id = $1 AND is_current AND kind IN ('performance_end','potential_end')) AS pop_end,
+       (SELECT min(date_value) FROM opportunity_dates WHERE opportunity_id = $1 AND is_current AND kind = 'questions_due') AS questions_due,
+       (SELECT min(date_value) FROM opportunity_dates WHERE opportunity_id = $1 AND is_current AND kind IN ('expected_solicitation')) AS expected_solicitation`,
     [opportunityId],
   );
   const connectorIds: string[] = stats.connectors ? String(stats.connectors).split(',').sort() : opp.connector_ids ?? [];
@@ -255,6 +297,15 @@ export async function recomputeOpportunity(db: Db, opportunityId: string, opts: 
     connector_ids: next.connector_ids,
     contact_sig: stats.contact_sig ?? '',
     documents: stats.docs,
+    // Added in schema 003. diffEvents only compares keys present in BOTH snapshots, so
+    // profiles created before these keys existed never get spurious change events.
+    desc_sents: scopeSentences(description).map((x) => x.hash),
+    performance_start: dayOf(next.performance_start),
+    performance_end: dayOf(next.performance_end),
+    questions_due: stats.questions_due ? new Date(stats.questions_due).toISOString() : null,
+    expected_solicitation: stats.expected_solicitation ? new Date(stats.expected_solicitation).toISOString().slice(0, 10) : null,
+    contract_vehicle: next.contract_vehicle ?? null,
+    pricing_type: next.pricing_type ?? null,
   };
   const hash = contentHash(snapshot);
   const eventTypes: string[] = [];
@@ -272,7 +323,7 @@ export async function recomputeOpportunity(db: Db, opportunityId: string, opts: 
       });
       eventTypes.push('NEW_OPPORTUNITY');
     } else {
-      eventTypes.push(...(await diffEvents(db, opportunityId, prev, snapshot, hash)));
+      eventTypes.push(...(await diffEvents(db, opportunityId, prev, snapshot, hash, description)));
     }
   }
 
@@ -286,18 +337,59 @@ export async function recomputeOpportunity(db: Db, opportunityId: string, opts: 
   return { eventTypes };
 }
 
-async function diffEvents(db: Db, opportunityId: string, prev: any, next: any, hash: string): Promise<string[]> {
+/** Connectors whose records are agency procurement forecasts. */
+export const FORECAST_CONNECTORS = ['gsa_forecast', 'dhs_apfs'];
+
+const EARLY_STAGES = new Set(['forecast', 'grant_forecast', 'recompete_signal', 'sources_sought', 'rfi', 'special_notice', 'presolicitation']);
+
+async function diffEvents(db: Db, opportunityId: string, prev: any, next: any, hash: string, description: string | null): Promise<string[]> {
   const out: string[] = [];
   const add = async (type: string, title: string, field: string | null, oldV: unknown, newV: unknown, detail: Record<string, unknown> = {}) => {
     await recordEvent(db, opportunityId, { type, title, field, oldValue: oldV, newValue: newV, detail, dedupeKey: `${type}:${field ?? ''}:${hash}` });
     out.push(type);
   };
+  /** Only compare keys both snapshots have (older snapshots predate some keys). */
+  const both = (k: string) => k in prev && k in next;
   const fmtDate = (v: string | null) => (v ? new Date(v).toISOString().slice(0, 10) : 'none');
   if (prev.stage !== next.stage) {
     await add('STAGE_CHANGED', `Stage changed: ${STAGE_LABELS[prev.stage as Stage] ?? prev.stage} → ${STAGE_LABELS[next.stage as Stage] ?? next.stage}`, 'stage', prev.stage, next.stage);
     if (next.stage === 'award') await add('AWARD_POSTED', 'Award posted', 'stage', prev.stage, next.stage);
+    if ((next.stage === 'solicitation' || next.stage === 'combined_synopsis') && EARLY_STAGES.has(prev.stage))
+      await add('SOLICITATION_RELEASED', `Solicitation released (was ${STAGE_LABELS[prev.stage as Stage] ?? prev.stage})`, 'stage', prev.stage, next.stage);
   }
-  if (prev.status !== next.status) await add('STATUS_CHANGED', `Status changed: ${prev.status} → ${next.status}`, 'status', prev.status, next.status);
+  if (prev.status !== next.status) {
+    if (next.status === 'cancelled') await add('CANCELLED', 'Notice cancelled at the source', 'status', prev.status, next.status);
+    else await add('STATUS_CHANGED', `Status changed: ${prev.status} → ${next.status}`, 'status', prev.status, next.status);
+  }
+  if (both('desc_sents') && Array.isArray(prev.desc_sents) && prev.desc_sents.length && next.desc_sents.length) {
+    const d = diffScope(prev.desc_sents, scopeSentences(description));
+    // Noise control: ignore single tiny edits; report real requirement text changes.
+    const meaningful = d.added.filter((t) => t.length >= 25);
+    if (meaningful.length + d.removedCount >= 2 || (meaningful.length >= 1 && d.changeRatio >= 0.03)) {
+      await add(
+        'SCOPE_CHANGED',
+        `Scope / description changed: ${meaningful.length} sentence(s) added, ${d.removedCount} removed`,
+        'description',
+        null,
+        null,
+        { addedSentences: meaningful.slice(0, 8), removedCount: d.removedCount, changeRatio: Number(d.changeRatio.toFixed(3)) },
+      );
+    }
+  }
+  for (const [field, label] of [
+    ['questions_due', 'Questions deadline'],
+    ['performance_start', 'Period of performance start'],
+    ['performance_end', 'Period of performance end'],
+    ['expected_solicitation', 'Expected solicitation date'],
+  ] as const) {
+    if (both(field) && (prev[field] ?? null) !== (next[field] ?? null)) await add('DATES_CHANGED', `${label} changed ${fmtDate(prev[field])} → ${fmtDate(next[field])}`, field, prev[field], next[field]);
+  }
+  for (const [field, label] of [
+    ['contract_vehicle', 'Contract vehicle'],
+    ['pricing_type', 'Contract / pricing type'],
+  ] as const) {
+    if (both(field) && stableStringify(prev[field]) !== stableStringify(next[field])) await add('FIELD_CHANGED', `${label} changed: ${prev[field] ?? 'none'} → ${next[field] ?? 'none'}`, field, prev[field], next[field]);
+  }
   if (prev.response_deadline !== next.response_deadline) await add('DEADLINE_CHANGED', `Deadline changed ${fmtDate(prev.response_deadline)} → ${fmtDate(next.response_deadline)}`, 'response_deadline', prev.response_deadline, next.response_deadline);
   if (prev.value_low !== next.value_low || prev.value_high !== next.value_high)
     await add('VALUE_CHANGED', `Value changed ${formatRange(prev.value_low, prev.value_high)} → ${formatRange(next.value_low, next.value_high)}`, 'value', [prev.value_low, prev.value_high], [next.value_low, next.value_high], { provenance: next.value_provenance });
@@ -309,7 +401,8 @@ async function diffEvents(db: Db, opportunityId: string, prev: any, next: any, h
     ['office_name', 'Office'],
     ['solicitation_number', 'Solicitation number'],
   ] as const) {
-    if (stableStringify(prev[field]) !== stableStringify(next[field])) await add('FIELD_CHANGED', `${label} changed: ${prev[field] ?? 'none'} → ${next[field] ?? 'none'}`, field, prev[field], next[field]);
+    if (stableStringify(prev[field]) !== stableStringify(next[field]))
+      await add(field === 'set_aside_code' ? 'SET_ASIDE_CHANGED' : 'FIELD_CHANGED', `${label} changed: ${prev[field] ?? 'none'} → ${next[field] ?? 'none'}`, field, prev[field], next[field]);
   }
   if ((prev.contact_sig ?? '') !== (next.contact_sig ?? '')) await add('CONTACT_CHANGED', 'Point of contact changed', 'contacts', prev.contact_sig, next.contact_sig);
   if (!prev.incumbent_name && next.incumbent_name) await add('INCUMBENT_IDENTIFIED', `Incumbent identified: ${next.incumbent_name}`, 'incumbent', null, next.incumbent_name);
@@ -317,7 +410,8 @@ async function diffEvents(db: Db, opportunityId: string, prev: any, next: any, h
   const newConn = (next.connector_ids as string[]).filter((c) => !prevConn.includes(c));
   for (const c of newConn) {
     await add('NEW_SOURCE', `New source linked: ${c}`, 'sources', prevConn, next.connector_ids, { connector: c });
-    if (c === 'gsa_forecast' || (prevConn.includes('gsa_forecast') && c.startsWith('sam'))) await add('FORECAST_LINKED', c === 'gsa_forecast' ? 'Forecast record linked to this profile' : 'SAM notice linked to forecast', 'sources', null, c);
+    const isForecastSource = (x: string) => FORECAST_CONNECTORS.includes(x);
+    if (isForecastSource(c) || (prevConn.some(isForecastSource) && c.startsWith('sam'))) await add('FORECAST_LINKED', isForecastSource(c) ? 'Forecast record linked to this profile' : 'SAM notice linked to forecast', 'sources', null, c);
   }
   return out;
 }

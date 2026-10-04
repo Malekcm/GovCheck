@@ -1,22 +1,40 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Download, SlidersHorizontal } from 'lucide-react';
-import { DECISIONS, DECISION_LABELS, ELIGIBILITY_LABELS, ELIGIBILITY_STATUSES, SET_ASIDE_LABELS, STAGES, STAGE_LABELS } from '../../shared/domain';
+import { Bookmark, Download, SlidersHorizontal } from 'lucide-react';
+import { DECISIONS, DECISION_LABELS, ELIGIBILITY_LABELS, ELIGIBILITY_STATUSES, PURSUIT_STAGES, PURSUIT_STAGE_LABELS, SET_ASIDE_LABELS, STAGES, STAGE_LABELS } from '../../shared/domain';
 import { api, qs } from '../api';
 import { OpportunityTable } from '../components/OpportunityTable';
-import { Card, Empty, ErrorBox, Loading, ProvenanceLegend } from '../components/ui';
+import { Card, Empty, ErrorBox, Loading, ProvenanceLegend, toast } from '../components/ui';
 
 const FILTER_KEYS = [
   'q', 'minFit', 'minPref', 'eligibility', 'decision', 'stage', 'opportunityClass', 'source', 'agency', 'subagency', 'office', 'naics', 'psc', 'setAside', 'vehicle',
   'valueMin', 'valueMax', 'postedFrom', 'postedTo', 'deadlineFrom', 'deadlineTo', 'performanceFrom', 'performanceTo', 'dueWithinDays', 'changedWithinDays', 'state',
   'recompete', 'hasIncumbent', 'hasDocuments', 'newSinceVisit', 'openOnly', 'includeGrants', 'agencyId', 'officeId', 'vendorId', 'maxFit',
+  'minAttractiveness', 'minConfidence', 'expiringWithinMonths', 'incumbent', 'noticeType', 'changeType', 'captureStage', 'owner', 'tag', 'status',
 ] as const;
+
+const CHANGE_TYPES: [string, string][] = [
+  ['SCOPE_CHANGED', 'Scope changed'],
+  ['DEADLINE_CHANGED', 'Deadline changed'],
+  ['DATES_CHANGED', 'Key date changed'],
+  ['AMENDMENT', 'Amendment'],
+  ['SOLICITATION_RELEASED', 'Solicitation released'],
+  ['SET_ASIDE_CHANGED', 'Set-aside changed'],
+  ['VALUE_CHANGED', 'Value changed'],
+  ['CONTACT_CHANGED', 'Contact changed'],
+  ['NEW_DOCUMENT', 'New document'],
+  ['QA_PUBLISHED', 'Q&A published'],
+  ['AWARD_POSTED', 'Award posted'],
+  ['CANCELLED', 'Cancelled'],
+  ['INCUMBENT_IDENTIFIED', 'Incumbent identified'],
+];
 
 const SOURCES = [
   ['sam_opportunities', 'SAM API'],
   ['sam_bulk', 'SAM bulk'],
   ['gsa_forecast', 'GSA forecast'],
+  ['dhs_apfs', 'DHS forecast (APFS)'],
   ['sba_subnet', 'SUBNet'],
   ['grants_gov', 'Grants.gov'],
   ['usaspending', 'USAspending'],
@@ -77,7 +95,20 @@ export function OpportunitiesPage() {
     const v = filters[k];
     return v === undefined ? [] : Array.isArray(v) ? v : String(v).split(',').filter(Boolean);
   };
-  const exportUrl = `/api/opportunities/export.csv${qs({ ...filters, page: undefined, pageSize: undefined })}`;
+  const exportQs = qs({ ...filters, page: undefined, pageSize: undefined });
+  const exportUrl = `/api/opportunities/export.csv${exportQs}`;
+  const qc = useQueryClient();
+  const saveView = useMutation({
+    mutationFn: (name: string) => {
+      const { page: _p, pageSize: _s, sort, ...rest } = filters;
+      return api.post('/api/queues', { name, filters: rest, sort });
+    },
+    onSuccess: () => {
+      toast('Saved as a work queue (left navigation).');
+      qc.invalidateQueries({ queryKey: ['queues'] });
+    },
+    onError: (e: Error) => toast(e.message),
+  });
   const total = list.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / 50));
 
@@ -98,8 +129,13 @@ export function OpportunitiesPage() {
           <div className="row">
             <input type="search" placeholder="Keyword, solicitation #, PIID…" defaultValue={filters.q ?? ''} key={filters.q ?? ''} onKeyDown={(e) => e.key === 'Enter' && set('q', (e.target as HTMLInputElement).value)} style={{ width: 280 }} />
             <select value={filters.sort} onChange={(e) => set('sort', e.target.value)} aria-label="Sort">
-              <option value="best">Best match</option>
-              <option value="preference">Preference score</option>
+              <option value="best">Review priority (eligibility-aware)</option>
+              <option value="fit">Fit score</option>
+              <option value="preference">Personalized score</option>
+              <option value="attractiveness">Strategic attractiveness</option>
+              <option value="confidence">Data confidence</option>
+              <option value="expiring">Period of performance end</option>
+              <option value="next_action">Next capture action</option>
               <option value="deadline">Deadline</option>
               <option value="newest">Newest</option>
               <option value="updated">Recently updated</option>
@@ -114,9 +150,23 @@ export function OpportunitiesPage() {
           </div>
         }
         actions={
-          <a className="btn sm" href={exportUrl}>
-            <Download size={13} /> Export CSV
-          </a>
+          <>
+            <button
+              className="btn sm"
+              onClick={() => {
+                const name = window.prompt('Name this saved search / watchlist:');
+                if (name?.trim()) saveView.mutate(name.trim());
+              }}
+            >
+              <Bookmark size={13} /> Save view
+            </button>
+            <a className="btn sm" href={exportUrl}>
+              <Download size={13} /> CSV
+            </a>
+            <a className="btn sm" href={`/api/opportunities/export.xlsx${exportQs}`}>
+              <Download size={13} /> Excel
+            </a>
+          </>
         }
       >
         {showFilters && (
@@ -127,10 +177,20 @@ export function OpportunitiesPage() {
             <MultiSelect label="Eligibility" options={ELIGIBILITY_STATUSES.map((s) => [s, ELIGIBILITY_LABELS[s]])} value={arr('eligibility')} onChange={(v) => set('eligibility', v)} />
             <MultiSelect label="Source" options={SOURCES as [string, string][]} value={arr('source')} onChange={(v) => set('source', v)} />
             <MultiSelect label="Set-aside" options={[['NONE', 'None'], ...Object.entries(SET_ASIDE_LABELS)]} value={arr('setAside')} onChange={(v) => set('setAside', v)} />
+            <MultiSelect label="Capture stage" options={PURSUIT_STAGES.map((s) => [s, PURSUIT_STAGE_LABELS[s]])} value={arr('captureStage')} onChange={(v) => set('captureStage', v)} />
+            <MultiSelect label="Changed (type)" options={CHANGE_TYPES} value={arr('changeType')} onChange={(v) => set('changeType', v)} />
+            <MultiSelect label="Status" options={[['active', 'Active'], ['forecast', 'Forecast'], ['signal', 'Signal'], ['closed', 'Closed'], ['archived', 'Archived'], ['awarded', 'Awarded'], ['cancelled', 'Cancelled']]} value={arr('status')} onChange={(v) => set('status', v)} />
             {(
               [
                 ['minFit', 'Min fit', 'number'],
                 ['minPref', 'Min preference', 'number'],
+                ['minAttractiveness', 'Min attractiveness', 'number'],
+                ['minConfidence', 'Min confidence', 'number'],
+                ['expiringWithinMonths', 'PoP ends within (months)', 'number'],
+                ['incumbent', 'Incumbent', 'text'],
+                ['noticeType', 'Notice type', 'text'],
+                ['owner', 'Capture owner', 'text'],
+                ['tag', 'Tag', 'text'],
                 ['agency', 'Agency', 'text'],
                 ['office', 'Office', 'text'],
                 ['naics', 'NAICS (prefix)', 'text'],

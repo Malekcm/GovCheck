@@ -7,6 +7,7 @@ import type { Db } from './db';
 import type { RequestBudget } from './connectors/types';
 import type { HttpClient } from './lib/http';
 import { errorMessage, type Logger } from './lib/logger';
+import { registerBdRoutes } from './routes/bd';
 import { registerCompanyRoutes } from './routes/company';
 import { registerIntelRoutes } from './routes/intel';
 import { registerMetaRoutes } from './routes/meta';
@@ -109,6 +110,8 @@ export function createApp(deps: AppDeps): Hono {
 
   registerMetaRoutes(app, deps);
   registerCompanyRoutes(app, deps);
+  // BD routes first: static paths like /api/opportunities/export.xlsx must win over /api/opportunities/:id.
+  registerBdRoutes(app, deps);
   registerOpportunityRoutes(app, deps);
   registerIntelRoutes(app, deps);
   registerSourceRoutes(app, deps);

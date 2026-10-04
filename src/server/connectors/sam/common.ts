@@ -57,7 +57,27 @@ export function samTypeToStage(type: string | null | undefined, baseType: string
     return RFI_RE.test(title) ? { stage: 'rfi', basis: 'Official notice type is Special Notice; title identifies it as an RFI.' } : { stage: 'special_notice' };
   }
   if (t.includes('solicitation')) return { stage: 'solicitation' };
+  if (t.includes('justification') || t.includes('j&a'))
+    return { stage: 'special_notice', basis: 'Official notice type is a Justification (J&A / limited-sources): the agency intends to award without full competition.' };
+  if (t.includes('intent to bundle')) return { stage: 'special_notice', basis: 'Official notice type is Intent to Bundle Requirements.' };
   return { stage: 'other' };
+}
+
+const CANCEL_TITLE_RE = /\b(cancel+ed|cancel+ation|cancel+ing)\b/i;
+const CANCEL_TEXT_RE = /\b(this|the)\s+(notice|solicitation|requirement|synopsis|rfq|rfp|rfi|sources sought|announcement)\s+(is|has been|was)\s+(hereby\s+)?cancel+ed\b/i;
+const SOLE_SOURCE_RE = /\b(intent(ion)?\s+to\s+(award|negotiate|issue|sole[\s-]source)[^.]{0,80}sole[\s-]source|sole[\s-]source\s+(award|basis|procurement|acquisition|contract)|notice\s+of\s+intent\s+to\s+sole|other\s+than\s+full\s+and\s+open\s+competition|FAR\s+(6\.302|13\.106-1\(b\)|13\.501))/i;
+
+/**
+ * Derived lifecycle flags. SAM.gov has no structured "cancelled" field in the public API or
+ * extract; agencies cancel by re-posting with a cancellation title/description. Detection is
+ * labeled DERIVED with the matched text as basis.
+ */
+export function detectSamFlags(title: string, description: string | null | undefined, type: string | null | undefined): { cancelled: string | null; soleSource: string | null } {
+  const head = `${title}\n${(description ?? '').slice(0, 1500)}`;
+  const cancelled = CANCEL_TITLE_RE.test(title) ? `Title indicates cancellation: “${title.slice(0, 160)}”` : CANCEL_TEXT_RE.exec(head)?.[0] ? `Description states: “${CANCEL_TEXT_RE.exec(head)![0]}”` : null;
+  const ss = SOLE_SOURCE_RE.exec(head);
+  const soleSource = /justification|j&a/i.test(type ?? '') ? 'Official notice type is a Justification (J&A).' : ss ? `Text states: “${ss[0].slice(0, 160)}”` : null;
+  return { cancelled, soleSource };
 }
 
 /** Additional derived procurement form (RFP/RFQ/RFI) detected from the title. */
@@ -85,6 +105,12 @@ export function samNoticeToNormalized(n: SamNotice): NormalizedOpportunity {
   if (stage === 'award') status = 'awarded';
   else if (n.active === false || (archive && archive.getTime() < now)) status = 'archived';
   else if (deadline && deadline.getTime() < now) status = 'closed';
+  const flags = detectSamFlags(n.title ?? '', n.description, n.type);
+  let statusBasis: string | undefined;
+  if (flags.cancelled && stage !== 'award') {
+    status = 'cancelled';
+    statusBasis = flags.cancelled;
+  }
 
   const pathParts = splitPath(n.fullParentPathName);
   const department = n.department ?? pathParts[0] ?? null;
@@ -119,6 +145,7 @@ export function samNoticeToNormalized(n: SamNotice): NormalizedOpportunity {
     opportunityClass: 'prime',
     stage,
     stageBasis: basis,
+    statusBasis,
     noticeType: n.type ?? null,
     status,
     title: n.title?.trim() || `SAM notice ${n.noticeId}`,
@@ -161,7 +188,15 @@ export function samNoticeToNormalized(n: SamNotice): NormalizedOpportunity {
           setAside: n.setAside ?? null,
         }
       : null,
-    extra: { ...n.extra, requestForm, organizationType: n.organizationType ?? undefined, archiveType: n.archiveType ?? undefined, baseType: n.baseType ?? undefined },
+    extra: {
+      ...n.extra,
+      requestForm,
+      organizationType: n.organizationType ?? undefined,
+      archiveType: n.archiveType ?? undefined,
+      baseType: n.baseType ?? undefined,
+      cancelled: flags.cancelled ? true : undefined,
+      soleSourceIntent: flags.soleSource ?? undefined,
+    },
   };
 }
 
@@ -196,6 +231,8 @@ export function samApiItemToNotice(item: any): SamNotice {
     email: str(c.email),
     phone: str(c.phone),
     fax: str(c.fax),
+    // SAM POCs sometimes carry an office / mailing note here; it was previously discarded.
+    organization: str(c.additionalInfo?.content),
   }));
 
   const pop = item.placeOfPerformance ?? null;

@@ -124,7 +124,8 @@ export function createFeedAdapter(meta: Pick<ConnectorMeta, 'id' | 'name'> & Par
     if (!cfg.url) throw new Error('Feed URL is not configured.');
     const robots = await robotsAllows(ctx.http, cfg.url);
     if (!robots.allowed) throw new Error(`robots.txt disallows ${cfg.url}`);
-    const res = await ctx.http.request<string>({ url: cfg.url, responseType: 'text', timeoutMs: 60_000, retries: 2, hostDelayMs: cfg.requestDelayMs ?? 1500 });
+    // publicOnly: feed URLs are user-configured, so every hop must resolve to a public host (SSRF guard).
+    const res = await ctx.http.request<string>({ url: cfg.url, responseType: 'text', timeoutMs: 60_000, retries: 2, hostDelayMs: cfg.requestDelayMs ?? 1500, maxBytes: 50 * 1024 * 1024, publicOnly: true });
     return parseFeedItems(res.data, cfg);
   }
   const itemId = (item: Record<string, unknown>) =>

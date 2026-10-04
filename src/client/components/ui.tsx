@@ -66,7 +66,7 @@ export function EligibilityBadge({ status }: { status: string | null | undefined
 
 export function DecisionBadge({ decision }: { decision: string | null | undefined }) {
   if (!decision) return <span className="muted small">Unreviewed</span>;
-  const tone = decision === 'pursue' ? 'good' : decision === 'interested' ? 'good' : decision === 'pass' || decision === 'not_relevant' ? 'neutral' : 'info';
+  const tone = ['strong_pursue', 'pursue', 'interested', 'partner_sub'].includes(decision) ? 'good' : ['pass', 'not_relevant', 'not_eligible', 'duplicate_irrelevant'].includes(decision) ? 'neutral' : 'info';
   return <span className={`badge ${tone}`}>{DECISION_LABELS[decision as Decision] ?? decision}</span>;
 }
 
@@ -76,9 +76,21 @@ const SOURCE_SHORT: Record<string, string> = {
   sam_awards: 'SAM awards',
   usaspending: 'USAspending',
   gsa_forecast: 'GSA forecast',
+  dhs_apfs: 'DHS forecast',
   sba_subnet: 'SUBNet',
   grants_gov: 'Grants.gov',
 };
+/** A 0–100 dimension with its factors on hover (attractiveness, confidence, priority). */
+export function Dimension({ label, value, factors, missing }: { label: string; value: number | null | undefined; factors?: { label: string; effect: number; detail: string }[]; missing?: string[] }) {
+  const tip = [...(factors ?? []).map((f) => `${f.effect > 0 ? '+' : ''}${f.effect} ${f.label}: ${f.detail}`), ...(missing?.length ? [`Missing: ${missing.join(', ')}`] : [])].join('\n');
+  return (
+    <div className="dim tip" data-tip={tip || label}>
+      <div className="label">{label}</div>
+      <Score value={value} />
+    </div>
+  );
+}
+
 export function SourceBadges({ ids }: { ids: string[] | null | undefined }) {
   if (!ids?.length) return <span className="muted">—</span>;
   return (

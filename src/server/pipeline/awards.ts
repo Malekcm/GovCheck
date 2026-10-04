@@ -6,6 +6,7 @@ import type { NormalizedAward } from '../connectors/types';
 import { upsertVendor } from './entities';
 import { recordEvent } from './events';
 import { setDates, setFinancials } from './apply';
+import { upsertRelationship } from './resolve';
 
 const MONEY_AND_POP = ['dollars_obligated', 'total_obligated', 'base_and_all_options', 'base_and_exercised', 'total_outlays', 'pop_start', 'pop_current_end', 'pop_potential_end', 'number_of_offers', 'subaward_count', 'subaward_amount'];
 const DESCRIPTIVE = [
@@ -260,9 +261,51 @@ export async function linkAwardExact(db: Db, awardId: string): Promise<string[]>
       [award.piid_key],
     );
     for (const o of opps) {
-      if (o.id_type === 'predecessor_piid') await link(o.id, { relationship: 'incumbent', confidence: 'high', method: 'exact', evidence: [`This intelligence profile was generated from contract ${award.piid}.`] });
+      if (o.id_type === 'predecessor_piid') await link(o.id, { relationship: 'incumbent', confidence: 'high', method: 'exact', evidence: [`The source names contract ${award.piid} as the incumbent / predecessor contract.`] });
       else await link(o.id, { relationship: 'award_of', confidence: 'high', method: 'exact', evidence: [`Award PIID ${award.piid} matches the award number on this notice.`] });
     }
   }
+  return [...touched];
+}
+
+/**
+ * A record that names its predecessor contract (e.g. a DHS APFS follow-on forecast) links
+ * exactly to (a) award records already stored for that PIID — as the incumbent — and (b) any
+ * POSSIBLE RECOMPETE signal generated from the same contract (they describe the same follow-on).
+ * When the source also names the incumbent contractor, that official fact is recorded even if
+ * no award record has been retrieved yet.
+ */
+export async function linkPredecessorContracts(db: Db, opportunityId: string, predecessorPiids: string[], incumbent?: { name: string | null; contract: string | null } | null): Promise<string[]> {
+  const touched = new Set<string>();
+  for (const raw of predecessorPiids) {
+    const key = normalizeIdentifier('piid', raw);
+    if (!key) continue;
+    for (const a of await db.query<{ id: string }>(`SELECT id FROM awards WHERE piid_key = $1 AND award_key NOT LIKE 'sam_notice:%'`, [key])) {
+      for (const id of await linkAwardExact(db, a.id)) touched.add(id);
+    }
+    const signals = await db.query<{ id: string }>(
+      `SELECT DISTINCT o.id FROM opportunity_identifiers oi JOIN opportunities o ON o.id = oi.opportunity_id
+       WHERE oi.id_type = 'predecessor_piid' AND oi.normalized_value = $1 AND o.is_signal AND o.merged_into_id IS NULL AND o.id <> $2`,
+      [key, opportunityId],
+    );
+    for (const sgl of signals) {
+      await upsertRelationship(db, opportunityId, sgl.id, 'forecast_of', 0.95, 'exact', [`Both reference incumbent contract ${raw}: this record is the planned follow-on of the expiring contract.`]);
+      touched.add(sgl.id);
+    }
+  }
+  if (incumbent?.name) {
+    const vendorId = await upsertVendor(db, { name: incumbent.name });
+    if (vendorId) {
+      const existing = await db.one(`SELECT 1 FROM opportunity_vendors WHERE opportunity_id = $1 AND vendor_id = $2 AND role = 'confirmed_incumbent'`, [opportunityId, vendorId]);
+      await setVendorRole(db, opportunityId, vendorId, 'confirmed_incumbent', 'high', [`Source lists ${incumbent.name}${incumbent.contract ? ` (contract ${incumbent.contract})` : ''} as the incumbent.`]);
+      if (!existing)
+        await recordEvent(db, opportunityId, {
+          type: 'INCUMBENT_IDENTIFIED',
+          title: `Incumbent named by source: ${incumbent.name}${incumbent.contract ? ` (${incumbent.contract})` : ''}`,
+          dedupeKey: `incumbent-named:${vendorId}`,
+        });
+    }
+  }
+  touched.add(opportunityId);
   return [...touched];
 }

@@ -102,13 +102,19 @@ export function registerMetaRoutes(app: Hono, deps: AppDeps) {
       'watchlists',
       'preference_models',
       'preference_weights',
+      'opportunity_capture',
+      'opportunity_capture_history',
     ];
-    const out: Record<string, unknown> = { exportedAt: new Date().toISOString(), format: 'goi-backup-v1' };
+    const out: Record<string, unknown> = { exportedAt: new Date().toISOString(), format: 'goi-backup-v2' };
     for (const t of tables) out[t] = await db.query(`SELECT * FROM ${t}`);
     out.custom_capabilities = await db.query('SELECT * FROM capabilities WHERE is_custom');
     out.manual_relationships = await db.query(`SELECT * FROM opportunity_relationships WHERE created_by = 'user' OR status <> 'suggested'`);
+    out.manual_award_links = await db.query(`SELECT * FROM opportunity_awards WHERE method = 'manual' OR status = 'rejected'`);
+    out.dismissed_coverage_signals = await db.query(`SELECT signal_key, signal_type, title, status, first_detected_at FROM coverage_signals WHERE status = 'dismissed'`);
     out.opportunity_index = await db.query(
-      `SELECT o.id, o.title, o.solicitation_number, o.primary_notice_id FROM opportunities o WHERE EXISTS (SELECT 1 FROM user_opportunity_decisions d WHERE d.opportunity_id = o.id) OR EXISTS (SELECT 1 FROM user_notes n WHERE n.opportunity_id = o.id)`,
+      `SELECT o.id, o.title, o.solicitation_number, o.primary_notice_id FROM opportunities o WHERE EXISTS (SELECT 1 FROM user_opportunity_decisions d WHERE d.opportunity_id = o.id) OR EXISTS (SELECT 1 FROM user_notes n WHERE n.opportunity_id = o.id)
+         OR EXISTS (SELECT 1 FROM user_tags t WHERE t.opportunity_id = o.id) OR EXISTS (SELECT 1 FROM opportunity_capture k WHERE k.opportunity_id = o.id)
+         OR EXISTS (SELECT 1 FROM user_field_overrides f WHERE f.opportunity_id = o.id)`,
     );
     c.header('Content-Disposition', `attachment; filename="goi-backup-${new Date().toISOString().slice(0, 10)}.json"`);
     return c.json(out);

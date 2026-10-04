@@ -71,7 +71,7 @@ export const samOpportunitiesAdapter: SourceAdapter = {
       'SAM.gov personal API keys for non-federal users without a role are limited to 10 requests/day; the connector budgets requests (SAM_DAILY_REQUEST_LIMIT) and resumes the next day. ' +
       'Full descriptions require one extra request per notice, so breadth comes from the free bulk CSV connector.',
   },
-  parserVersion: 'sam-opps-2',
+  parserVersion: 'sam-opps-3',
 
   isConfigured(config) {
     return config.samApiKey ? { configured: true } : { configured: false, reason: 'SAM_API_KEY is not set. Request a free public API key at sam.gov (Account Details → Public API Key).' };

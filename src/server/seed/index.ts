@@ -36,6 +36,8 @@ export async function runSeed(db: Db): Promise<void> {
       [view.slug, view.name, view.description, json(view.filters), view.sort ?? 'best', q++],
     );
   }
+  // System queues are reference data: retire ones that no longer exist (user-saved views are never touched).
+  await db.query('DELETE FROM watchlists WHERE is_system AND NOT (slug = ANY($1::text[]))', [SYSTEM_QUEUES.map((v) => v.slug)]);
   const company = await db.one('SELECT id FROM company_profiles LIMIT 1');
   if (!company) await db.query(`INSERT INTO company_profiles (name) VALUES (NULL)`);
 }
