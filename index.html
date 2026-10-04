@@ -10,7 +10,15 @@
     <title>GovCheck — Opportunity Intelligence</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Replaced as soon as the app loads. Shown while a sleeping free-tier server wakes up. -->
+      <div style="font-family: system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; color: #475569; text-align: center; padding: 24px">
+        <div>
+          <div style="font-size: 18px; font-weight: 600; color: #0f172a">Connecting to GovCheck…</div>
+          <div style="margin-top: 8px; font-size: 14px">If nobody has used GovCheck for a while, the server can take up to a minute to wake up.</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/client/main.tsx"></script>
   </body>
 </html>

@@ -1,16 +1,72 @@
-# Optional external scheduler: calls the deployed app's cron endpoint.
-# Set repository secrets GOVCHECK_URL (e.g. https://govcheck.example.com) and GOVCHECK_CRON_SECRET (= CRON_SECRET).
+# Scheduled source checks, run directly against the shared Supabase database.
+#
+# Runs `npm run sync:due`: only sources whose schedule says they are due are checked, only
+# new or changed records are processed, and SAM.gov requests are spent in priority order.
+# It does not depend on the hosted web app being awake.
+#
+# Setup (see docs/DEPLOY_SUPABASE_RENDER.md):
+#   Repository secrets:   DATABASE_URL, DATABASE_SSL_CA_BASE64, SAM_API_KEY, ANTHROPIC_API_KEY (optional)
+#   Repository variables: GOVCHECK_SCHEDULED_SYNC=true   (turns the schedule on)
+#                         SAM_DAILY_REQUEST_LIMIT=10      (optional; must match the web app)
 name: Scheduled sync
 on:
   schedule:
-    - cron: '17 */6 * * *' # every 6 hours
+    # Every 3 hours at :23. Each source still runs only when it is due (SAM API every 6 h,
+    # free bulk file daily, forecasts daily …), so frequent checks cost nothing extra.
+    - cron: '23 */3 * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only show what is due and how SAM requests would be spent'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Never run two scheduled syncs at once (the database lease also guards against the web app).
+concurrency:
+  group: govcheck-scheduled-sync
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: ${{ vars.GOVCHECK_SCHEDULED_SYNC == 'true' }}
+    if: ${{ vars.GOVCHECK_SCHEDULED_SYNC == 'true' || github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 150
+    env:
+      NODE_ENV: production
+      REQUIRE_DATABASE_URL: 'true'
+      SCHEDULER_ENABLED: 'false'
+      DATABASE_POOL_MAX: '3'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_SSL_CA_BASE64: ${{ secrets.DATABASE_SSL_CA_BASE64 }}
+      SAM_API_KEY: ${{ secrets.SAM_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SAM_DAILY_REQUEST_LIMIT: ${{ vars.SAM_DAILY_REQUEST_LIMIT || '10' }}
+      CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
     steps:
-      - name: Trigger due syncs
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Check configuration
         run: |
-          curl -fsS -X POST "${{ secrets.GOVCHECK_URL }}/api/cron/sync" \
-            -H "Authorization: Bearer ${{ secrets.GOVCHECK_CRON_SECRET }}"
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Repository secret DATABASE_URL is not set (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+      - name: Apply migrations
+        run: npm run migrate
+      - name: Show what is due
+        run: npm run sync:due -- --dry-run
+      - name: Run due sources
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
+        run: npm run sync:due -- --triggered-by github-actions
+      - name: Status
+        if: always()
+        run: npm run status

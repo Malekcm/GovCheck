@@ -6,11 +6,32 @@ import { api } from '../api';
 import { date } from '../format';
 import { Card, Empty, ErrorBox, Loading, Score, StageBadge } from '../components/ui';
 
+/** One-click answers to the questions BD teams actually ask. */
+const PRESETS: { id: string; label: string; days: number; type: string | null; scope: 'all' | 'tracked'; meaningful: boolean }[] = [
+  { id: 'yesterday', label: 'What changed since yesterday?', days: 1, type: null, scope: 'all', meaningful: true },
+  { id: 'new-week', label: 'New opportunities this week', days: 7, type: 'NEW_OPPORTUNITY', scope: 'all', meaningful: false },
+  { id: 'tracked-amend', label: 'Amendments on watched / pursued', days: 30, type: 'AMENDMENT,NEW_DOCUMENT,DEADLINE_CHANGED,SCOPE_CHANGED', scope: 'tracked', meaningful: false },
+  { id: 'tracked-all', label: 'Everything on watched / pursued', days: 14, type: null, scope: 'tracked', meaningful: true },
+];
+
 export function ChangesPage() {
   const [type, setType] = useState<string | null>(null);
   const [days, setDays] = useState(14);
   const [minFit, setMinFit] = useState(0);
-  const q = useQuery({ queryKey: ['changes', type, days, minFit], queryFn: () => api.get<any>(`/api/changes?days=${days}&minFit=${minFit}${type ? `&type=${type}` : ''}`) });
+  const [scope, setScope] = useState<'all' | 'tracked'>('all');
+  const [meaningful, setMeaningful] = useState(false);
+  const [preset, setPreset] = useState<string | null>(null);
+  const q = useQuery({
+    queryKey: ['changes', type, days, minFit, scope, meaningful],
+    queryFn: () => api.get<any>(`/api/changes?days=${days}&minFit=${minFit}&scope=${scope}${meaningful ? '&meaningful=true' : ''}${type ? `&type=${type}` : ''}`),
+  });
+  const apply = (p: (typeof PRESETS)[number]) => {
+    setPreset(p.id);
+    setDays(p.days);
+    setType(p.type);
+    setScope(p.scope);
+    setMeaningful(p.meaningful);
+  };
   return (
     <div>
       <div className="page-head">
@@ -19,8 +40,15 @@ export function ChangesPage() {
           <p>What changed across all sources: new profiles and sources, deadline/value/status changes, amendments, new documents, awards, forecast links, incumbents and recompete signals.</p>
         </div>
         <div className="row">
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
-            {[1, 7, 14, 30, 90].map((d) => (
+          <select value={scope} onChange={(e) => (setScope(e.target.value as 'all' | 'tracked'), setPreset(null))}>
+            <option value="all">All opportunities</option>
+            <option value="tracked">Watched / pursued / in capture</option>
+          </select>
+          <label className="row small nowrap">
+            <input type="checkbox" checked={meaningful} onChange={(e) => (setMeaningful(e.target.checked), setPreset(null))} /> Meaningful changes only
+          </label>
+          <select value={days} onChange={(e) => (setDays(Number(e.target.value)), setPreset(null))}>
+            {[1, 2, 7, 14, 30, 90].map((d) => (
               <option key={d} value={d}>
                 Last {d} day{d > 1 ? 's' : ''}
               </option>
@@ -34,13 +62,25 @@ export function ChangesPage() {
           </select>
         </div>
       </div>
+      <div className="chips" style={{ marginBottom: 8 }}>
+        {PRESETS.map((p) => (
+          <span key={p.id} className={`chip ${preset === p.id ? 'on' : ''}`} onClick={() => apply(p)}>
+            {p.label}
+          </span>
+        ))}
+      </div>
+      {q.data?.summary && (
+        <p className="small muted" style={{ margin: '0 0 8px' }}>
+          {q.data.summary.events.toLocaleString()} change(s) across {q.data.summary.opportunities.toLocaleString()} opportunit{q.data.summary.opportunities === 1 ? 'y' : 'ies'} in the last {days} day{days > 1 ? 's' : ''}.
+        </p>
+      )}
       {q.data && (
         <div className="chips" style={{ marginBottom: 12 }}>
-          <span className={`chip ${!type ? 'on' : ''}`} onClick={() => setType(null)}>
+          <span className={`chip ${!type ? 'on' : ''}`} onClick={() => (setType(null), setPreset(null))}>
             All
           </span>
           {q.data.counts.map((c: any) => (
-            <span key={c.event_type} className={`chip ${type === c.event_type ? 'on' : ''}`} onClick={() => setType(c.event_type)}>
+            <span key={c.event_type} className={`chip ${type === c.event_type ? 'on' : ''}`} onClick={() => (setType(c.event_type), setPreset(null))}>
               {EVENT_LABELS[c.event_type] ?? c.event_type} <span className="num">{c.n}</span>
             </span>
           ))}
@@ -73,6 +113,7 @@ export function ChangesPage() {
                   </td>
                   <td>
                     <Link to={`/opportunities/${e.opportunity_id}`}>{e.opportunity_title}</Link>
+                    {e.decision && <div className="small muted">Your decision: {e.decision}</div>}
                   </td>
                   <td>
                     <Score value={e.fit_score} />

@@ -23,6 +23,11 @@ interface ExistingRow {
   normalized: any | null;
 }
 
+/** Content hash of a raw record (raw payload + supplemental text). */
+export function recordHash(rec: Pick<RawRecord, 'raw'>, rawText: string | null): string {
+  return contentHash({ raw: rec.raw ?? null, rawText: rawText ?? null });
+}
+
 function hashOf(rec: RawRecord, rawText: string | null): string {
   return contentHash({ raw: rec.raw ?? null, rawText: rawText ?? null });
 }

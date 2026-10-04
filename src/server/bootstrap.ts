@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import type { AppDeps } from './app';
 import { loadConfig, type AppConfig } from './config';
 import { ensureConnectors, ensureEngines } from './connectors/registry';
-import { createDb } from './db';
+import { createDb, describeDatabaseUrl, describeTls, resolveCaCertificate } from './db';
 import { runMigrations } from './db/migrate';
 import { FetchHttpClient, userAgent } from './lib/http';
 import { createLogger } from './lib/logger';
@@ -26,6 +26,21 @@ export async function bootstrap(overrides: Partial<AppConfig> = {}): Promise<App
   loadEnvFile();
   const config = { ...loadConfig(), ...overrides };
   const log = createLogger('goi');
+  if (!config.databaseUrl && config.requireDatabaseUrl) {
+    throw new Error(
+      'REQUIRE_DATABASE_URL is set but DATABASE_URL is empty. Hosted deployments must use the shared PostgreSQL/Supabase database — ' +
+        'the embedded PGlite database would live on the host’s temporary disk and be lost on restart.',
+    );
+  }
+  if (!config.databaseUrl && config.nodeEnv === 'production')
+    log.warn('Running in production on the embedded PGlite database. Make sure the data directory is on a persistent volume, or set DATABASE_URL.');
+  if (config.nodeEnv === 'production' && !config.appPassword) log.warn('APP_PASSWORD is not set: anyone who knows this URL can use GovCheck. Set APP_PASSWORD on hosted deployments.');
+  if (config.nodeEnv === 'production' && config.appPassword && config.sessionSecret === config.appPassword)
+    log.warn('SESSION_SECRET is not set; set a long random value so login cookies cannot be forged.');
+  if (config.databaseUrl) {
+    resolveCaCertificate(config); // validates DATABASE_SSL_CA_* early with a clear message
+    log.info(`Database: ${describeDatabaseUrl(config.databaseUrl)} · ${describeTls(config)}`);
+  }
   const db = await createDb(config);
   const migrations = await runMigrations(db, config.migrationsDir);
   if (migrations.applied.length) log.info(`Applied migrations: ${migrations.applied.join(', ')}`);

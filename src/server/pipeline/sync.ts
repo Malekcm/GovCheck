@@ -10,7 +10,8 @@ import { errorMessage } from '../lib/logger';
 import type { IdentifierType } from '../lib/ids';
 import { loadCompanyContext } from '../scoring/profile';
 import { prepareScoring, scoreMany } from '../scoring/run';
-import { BudgetExhaustedError } from './budget';
+import { BudgetExhaustedError, withBudgetMeta } from './budget';
+import { acquireLease, currentLease, releaseLease, renewLease, SYNC_LEASE_TTL_MS } from './lease';
 import { recomputeOpportunity } from './canonical';
 import { computeCoverage } from './coverage';
 import { extractDescriptionRequirements, processPendingDocuments } from './documents';
@@ -18,6 +19,8 @@ import { analyzeIncumbency, fetchRelatedAwards } from './enrich';
 import { emptyStats, ingestRecord, markUnseen, type IngestContext } from './ingest';
 import { runRecompeteEngine } from './recompete';
 import { partitionUnchanged } from './store';
+import { discoveryTerms } from './searchTerms';
+import { runSamPriorityChecks } from './samPriority';
 
 export interface SyncDeps {
   db: Db;
@@ -41,10 +44,25 @@ const FULL_LISTING_CONNECTORS = new Set(['sba_subnet', 'grants_gov', 'dhs_apfs']
 
 export async function focusFor(db: Db): Promise<ConnectorContext['focus']> {
   const co = await loadCompanyContext(db);
-  return { naics: co.naics, psc: co.psc, keywords: co.keywords, includeGrants: co.includeGrants };
+  return {
+    naics: co.naics,
+    psc: co.psc,
+    keywords: co.keywords,
+    includeGrants: co.includeGrants,
+    terms: discoveryTerms(co),
+    negativeKeywords: co.negativeKeywords,
+    preferredAgencies: co.preferredAgencies,
+  };
 }
 
-async function startRun(db: Db, connectorId: string, mode: string, triggeredBy: string, params: Record<string, unknown>, cursor: unknown): Promise<string> {
+/** Budget category for requests a connector makes during a normal run. */
+export function budgetCategoryFor(connectorId: string): string {
+  if (connectorId === 'sam_opportunities') return 'discovery';
+  if (connectorId === 'sam_awards') return 'awards';
+  return 'other';
+}
+
+export async function startRun(db: Db, connectorId: string, mode: string, triggeredBy: string, params: Record<string, unknown>, cursor: unknown): Promise<string> {
   const row = await db.one<{ id: string }>(
     `INSERT INTO sync_runs (connector_id, mode, status, triggered_by, params, started_at, cursor_before) VALUES ($1,$2,'running',$3,$4::jsonb, now(), $5::jsonb) RETURNING id`,
     [connectorId, mode, triggeredBy, json(params), json(cursor ?? {})],
@@ -72,7 +90,7 @@ export async function logSyncError(db: Db, runId: string | null, connectorId: st
 export async function runConnector(
   deps: SyncDeps,
   connectorId: string,
-  opts: { mode?: SyncMode; triggeredBy?: string; params?: Record<string, unknown>; timeLimitMs?: number; maxChanged?: number } = {},
+  opts: { mode?: SyncMode; triggeredBy?: string; params?: Record<string, unknown>; timeLimitMs?: number; maxChanged?: number; budgetCategory?: string } = {},
 ): Promise<RunSummary> {
   const { db, log } = deps;
   const mode = opts.mode ?? 'incremental';
@@ -111,7 +129,7 @@ export async function runConnector(
     http: deps.http,
     config: deps.config,
     log: log.child(connectorId),
-    budget: deps.budget,
+    budget: withBudgetMeta(deps.budget, { category: opts.budgetCategory ?? budgetCategoryFor(connectorId), connectorId }),
     settings: row.config ?? {},
     focus: await focusFor(db),
     shouldStop: () => Date.now() > deadline || stats.created + stats.updated >= maxChanged,
@@ -329,6 +347,11 @@ export async function runAllSources(deps: SyncDeps, opts: { triggeredBy: string;
     if (!row?.enabled) continue;
     const mode: SyncMode = opts.mode === 'reconcile' ? (a.fetchReconcile ? 'reconcile' : 'incremental') : 'incremental';
     if (a.meta.id === 'sam_bulk' && opts.mode !== 'reconcile') continue; // bulk is reconciliation-only
+    if (a.meta.id === 'sam_opportunities' && mode === 'incremental') {
+      // SAM requests go to tracked / high-priority opportunities before general discovery.
+      const p = await runSamPriorityChecks(deps, { triggeredBy: opts.triggeredBy }).catch((err) => (deps.log.warn('SAM priority checks failed', err), null));
+      p?.dirty.forEach((id) => dirty.add(id));
+    }
     try {
       const r = await runConnector(deps, a.meta.id, { mode, triggeredBy: opts.triggeredBy });
       r.dirty.forEach((id) => dirty.add(id));
@@ -342,7 +365,7 @@ export async function runAllSources(deps: SyncDeps, opts: { triggeredBy: string;
   return results;
 }
 
-/** Start work in the background unless something is already running. */
+/** Start work in the background unless something is already running (this process only). */
 export function startExclusive(label: string, fn: () => Promise<unknown>, log: Logger): { started: boolean; label: string | null } {
   if (active) return { started: false, label: activeLabel };
   activeLabel = label;
@@ -355,14 +378,78 @@ export function startExclusive(label: string, fn: () => Promise<unknown>, log: L
   return { started: true, label };
 }
 
+/**
+ * Start source ingestion unless anything is running in THIS process or in ANY other
+ * process sharing the database (hosted app, GitHub Actions job, a CLI on a laptop).
+ * Holds a renewable database lease for the duration of the work. `done` resolves when the
+ * work has finished (CLI callers await it; HTTP handlers return immediately).
+ */
+export async function startSharedExclusive(
+  deps: Pick<SyncDeps, 'db' | 'log'>,
+  label: string,
+  fn: () => Promise<unknown>,
+): Promise<{ started: boolean; label: string | null; elsewhere?: boolean; done?: Promise<void> }> {
+  if (active) return { started: false, label: activeLabel };
+  let settle!: () => void;
+  const placeholder = new Promise<void>((r) => (settle = r));
+  active = placeholder;
+  activeLabel = label;
+  let acquired = false;
+  try {
+    acquired = await acquireLease(deps.db, label);
+  } catch (err) {
+    deps.log.warn('Could not acquire the shared sync lease', err);
+  }
+  if (!acquired) {
+    const other = await currentLease(deps.db).catch(() => null);
+    active = null;
+    activeLabel = null;
+    settle();
+    return { started: false, label: other ? `${other.label} (on ${other.host})` : 'another GovCheck process', elsewhere: true };
+  }
+  const heartbeat = setInterval(() => {
+    renewLease(deps.db).then(
+      (ok) => ok || deps.log.warn('The shared sync lease was lost; another process may start syncing.'),
+      (err) => deps.log.warn('Sync lease renewal failed', err),
+    );
+  }, SYNC_LEASE_TTL_MS / 3);
+  heartbeat.unref?.();
+  const done = fn()
+    .catch((err) => deps.log.error(`${label} failed`, err))
+    .finally(async () => {
+      clearInterval(heartbeat);
+      await releaseLease(deps.db).catch(() => undefined);
+      active = null;
+      activeLabel = null;
+      settle();
+    })
+    .then(() => undefined);
+  active = done;
+  return { started: true, label, done };
+}
+
+/** In-process status plus any lease held by another process sharing the database. */
+export async function sharedSyncStatus(db: Db): Promise<{ running: boolean; label: string | null; elsewhere: boolean }> {
+  if (active) return { running: true, label: activeLabel, elsewhere: false };
+  const lease = await currentLease(db).catch(() => null);
+  return lease ? { running: true, label: `${lease.label} (on ${lease.host})`, elsewhere: true } : { running: false, label: null, elsewhere: false };
+}
+
 export async function waitForIdle(): Promise<void> {
   while (active) await active;
 }
 
-/** Mark runs left "running" by a crash/restart as failed, so status is never misleading. */
+/**
+ * Mark runs left "running" by a crash/restart as failed, so status is never misleading.
+ * With a shared database another process may be mid-sync right now (e.g. the GitHub Actions
+ * job while the web app wakes up), so nothing is touched while any process holds the sync
+ * lease, and recent targeted searches (which run outside the lease) are left alone.
+ */
 export async function recoverInterruptedRuns(db: Db): Promise<number> {
+  if (await currentLease(db).catch(() => null)) return 0;
   const rows = await db.query<{ id: string }>(
-    `UPDATE sync_runs SET status = 'failed', finished_at = now(), message = COALESCE(message || ' · ', '') || 'Interrupted (server restarted before the run finished).' WHERE status IN ('running','queued') RETURNING id`,
+    `UPDATE sync_runs SET status = 'failed', finished_at = now(), message = COALESCE(message || ' · ', '') || 'Interrupted (the process stopped before the run finished).'
+     WHERE status IN ('running','queued') AND (mode <> 'targeted_search' OR started_at < now() - interval '30 minutes') RETURNING id`,
   );
   return rows.length;
 }
@@ -379,6 +466,7 @@ export async function refreshOpportunity(deps: SyncDeps, opportunityId: string):
     [opportunityId],
   );
   const dirty = new Set<string>([opportunityId]);
+  const budget = withBudgetMeta(deps.budget, { category: 'manual_refresh', detail: { opportunityId } });
   for (const s of sources) {
     const adapter: SourceAdapter | null = await getAdapter(db, s.connector_id);
     if (!adapter?.fetchByIdentifier) {
@@ -397,7 +485,7 @@ export async function refreshOpportunity(deps: SyncDeps, opportunityId: string):
       http: deps.http,
       config: deps.config,
       log: deps.log,
-      budget: deps.budget,
+      budget,
       settings: row?.config ?? {},
       focus: await focusFor(db),
       shouldStop: () => false,
@@ -420,7 +508,7 @@ export async function refreshOpportunity(deps: SyncDeps, opportunityId: string):
     const samAwards = await getAdapter(db, 'sam_awards');
     try {
       const recs = await samAwards!.fetchByIdentifier!(
-        { db, http: deps.http, config: deps.config, log: deps.log, budget: deps.budget, settings: {}, focus: await focusFor(db), shouldStop: () => false, params: {} },
+        { db, http: deps.http, config: deps.config, log: deps.log, budget, settings: {}, focus: await focusFor(db), shouldStop: () => false, params: {} },
         'solicitation_number',
         opp.solicitation_number,
       );

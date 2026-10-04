@@ -8,7 +8,14 @@ export const SAM_BUDGET_KEY = 'sam';
 const BASE = 'https://api.sam.gov/opportunities/v2/search';
 const PAGE_LIMIT = 1000;
 
-function samUrl(ctx: ConnectorContext, params: Record<string, string | number>): string {
+/** Query parameters worth journaling (never the key). */
+function safeParams(params: Record<string, string | number>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(params)) if (k !== 'api_key' && k !== 'limit' && k !== 'offset') out[k] = v;
+  return out;
+}
+
+function samUrl(ctx: Pick<ConnectorContext, 'config'>, params: Record<string, string | number>): string {
   const u = new URL(BASE);
   u.searchParams.set('api_key', ctx.config.samApiKey ?? '');
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
@@ -20,13 +27,13 @@ async function available(ctx: ConnectorContext, reserve: number): Promise<number
   return Math.max(0, (await ctx.budget.remaining(SAM_BUDGET_KEY)) - reserve);
 }
 
-async function samSearch(ctx: ConnectorContext, params: Record<string, string | number>) {
-  await ctx.budget.consume(SAM_BUDGET_KEY);
+export async function samSearch(ctx: Pick<ConnectorContext, 'budget' | 'http' | 'config'>, params: Record<string, string | number>, detail?: Record<string, unknown>) {
+  await ctx.budget.consume(SAM_BUDGET_KEY, 1, { connectorId: 'sam_opportunities', detail: { ...safeParams(params), ...(detail ?? {}) } });
   const res = await ctx.http.request<any>({ url: samUrl(ctx, params), timeoutMs: 90_000, retries: 2, hostDelayMs: 1500 });
   return res.data ?? {};
 }
 
-function toRecords(items: any[]): RawRecord[] {
+export function toRecords(items: any[]): RawRecord[] {
   const now = new Date();
   return items
     .filter((it) => it && it.noticeId)
@@ -34,12 +41,12 @@ function toRecords(items: any[]): RawRecord[] {
 }
 
 /** Fetch the full description text for a notice (costs one SAM request). */
-export async function fetchSamDescription(ctx: ConnectorContext, descriptionUrl: string): Promise<string | null> {
+export async function fetchSamDescription(ctx: Pick<ConnectorContext, 'budget' | 'http' | 'config'>, descriptionUrl: string): Promise<string | null> {
   if (!ctx.config.samApiKey) return null;
   if ((await ctx.budget.remaining(SAM_BUDGET_KEY)) <= 0) return null;
   const u = new URL(descriptionUrl);
   u.searchParams.set('api_key', ctx.config.samApiKey);
-  await ctx.budget.consume(SAM_BUDGET_KEY);
+  await ctx.budget.consume(SAM_BUDGET_KEY, 1, { connectorId: 'sam_opportunities', detail: { kind: 'description' } });
   const res = await ctx.http.request<string>({ url: u.toString(), responseType: 'text', timeoutMs: 45_000, retries: 1, hostDelayMs: 1500 });
   const body = (res.data ?? '').trim();
   if (!body || /^description not found/i.test(body)) return null;
@@ -93,7 +100,8 @@ export const samOpportunitiesAdapter: SourceAdapter = {
   async *fetchIncremental(ctx, cursor): AsyncGenerator<FetchPage> {
     const overlapDays = Number(ctx.settings.overlapDays ?? 3);
     const initialLookbackDays = Number(ctx.settings.initialLookbackDays ?? 14);
-    const reserve = Number(ctx.settings.reserveRequests ?? 2);
+    // Interactive reserve: background discovery never spends the last requests of the day.
+    const reserve = Number(ctx.settings.reserveRequests ?? ctx.config.samManualReserve);
     const today = new Date();
     const resume = (cursor.resume as { postedFrom: string; postedTo: string; offset: number; page: number } | undefined) ?? null;
     let offsetMode = (cursor.offsetMode as 'record' | 'page' | undefined) ?? 'record';

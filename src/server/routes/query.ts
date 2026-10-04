@@ -173,3 +173,7 @@ export const LIST_COLUMNS = `o.id, o.title, o.opportunity_class, o.stage, o.noti
   o.has_documents, o.has_incumbent, o.incumbent_name, o.recompete_signal, o.place_state, o.place_city, o.contract_vehicle, o.performance_end, o.seen_status,
   o.attractiveness_score, o.confidence_score, o.priority_score,
   d.decision, d.reasons AS decision_reasons, cap.pursuit_stage, cap.owner AS capture_owner, cap.next_action, cap.next_action_date`;
+
+/** Opportunities the team is actively following: Pursue / Interested / Watch, or in an active capture stage. Alias `o`. */
+export const TRACKED_SQL = `(EXISTS (SELECT 1 FROM user_opportunity_decisions td WHERE td.opportunity_id = o.id AND td.is_current AND td.decision IN ('pursue','interested','watch'))
+  OR EXISTS (SELECT 1 FROM opportunity_capture tk WHERE tk.opportunity_id = o.id AND tk.pursuit_stage NOT IN ('discovered','lost','no_bid')))`;

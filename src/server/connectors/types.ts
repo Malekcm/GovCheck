@@ -54,10 +54,17 @@ export interface FetchPage {
   warning?: string;
 }
 
+/** Why a budgeted request was made (journaled in api_request_log). */
+export interface BudgetMeta {
+  category?: string;
+  connectorId?: string;
+  detail?: Record<string, unknown>;
+}
+
 /** Shared, per-day request budgets (e.g. SAM.gov personal keys: 10 requests/day). */
 export interface RequestBudget {
   remaining(key: string): Promise<number>;
-  consume(key: string, n?: number): Promise<void>;
+  consume(key: string, n?: number, meta?: BudgetMeta): Promise<void>;
 }
 
 export interface ConnectorContext {
@@ -69,7 +76,16 @@ export interface ConnectorContext {
   /** Connector-specific settings from source_connectors.config (user-editable). */
   settings: Record<string, unknown>;
   /** Company targeting hints (NAICS, PSC) for sources that require a query focus. */
-  focus: { naics: string[]; psc: string[]; keywords: string[]; includeGrants: boolean };
+  focus: {
+    naics: string[];
+    psc: string[];
+    keywords: string[];
+    includeGrants: boolean;
+    /** Normalized capability / keyword search terms (see pipeline/searchTerms.ts). */
+    terms?: string[];
+    negativeKeywords?: string[];
+    preferredAgencies?: string[];
+  };
   /** Stop when this returns true (time limit / shutdown). */
   shouldStop: () => boolean;
   /** For parameterized runs (e.g. archived fiscal year import). */

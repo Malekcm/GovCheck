@@ -1,6 +1,7 @@
 import type { Hono } from 'hono';
 import type { AppDeps } from '../app';
-import { json } from '../db';
+import { describeTls, json } from '../db';
+import { utcToday } from '../pipeline/budget';
 import { buildOpportunityQuery, DECISION_JOIN, OpportunityFilters } from './query';
 
 export async function getLastVisit(deps: AppDeps): Promise<string | null> {
@@ -24,7 +25,7 @@ export function registerMetaRoutes(app: Hono, deps: AppDeps) {
   // Booleans only — secret values never leave the server.
   app.get('/api/meta', async (c) => {
     const reasons = await db.query('SELECT code, label, polarity FROM user_feedback_reasons ORDER BY sort_order');
-    const samUsed = await db.one<{ requests: number }>(`SELECT requests FROM api_usage WHERE connector_id = 'sam' AND usage_date = current_date`);
+    const samUsed = await db.one<{ requests: number }>(`SELECT requests FROM api_usage WHERE connector_id = 'sam' AND usage_date = $1`, [utcToday()]);
     return c.json({
       configuration: {
         database: db.kind === 'postgres' ? 'PostgreSQL (DATABASE_URL)' : 'Embedded PGlite (local file)',
@@ -37,6 +38,9 @@ export function registerMetaRoutes(app: Hono, deps: AppDeps) {
         samDailyRequestLimit: config.samDailyRequestLimit,
         samRequestsUsedToday: samUsed?.requests ?? 0,
         samDownloadDocuments: config.samDownloadDocuments,
+        samManualReserve: config.samManualReserve,
+        samBulkIngestMode: config.samBulkIngestMode,
+        databaseTls: db.kind === 'postgres' ? describeTls(config) : null,
       },
       feedbackReasons: reasons,
     });

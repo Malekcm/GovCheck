@@ -48,11 +48,12 @@ export async function processDocument(deps: DocDeps, d: DocRow): Promise<string>
       ]);
       return 'skipped';
     }
-    if ((await deps.budget.remaining(SAM_BUDGET_KEY)) <= 1) return 'deferred';
+    // Attachments are the lowest SAM priority: never dip into the interactive reserve.
+    if ((await deps.budget.remaining(SAM_BUDGET_KEY)) <= Math.max(1, deps.config.samManualReserve)) return 'deferred';
     const u = new URL(url);
     u.searchParams.set('api_key', deps.config.samApiKey);
     url = u.toString();
-    await deps.budget.consume(SAM_BUDGET_KEY);
+    await deps.budget.consume(SAM_BUDGET_KEY, 1, { category: 'documents', connectorId: 'engine:documents', detail: { documentId: d.id } });
   } else if (!API_HOSTS.test(host)) {
     const robots = await robotsAllows(deps.http, url);
     if (!robots.allowed) {

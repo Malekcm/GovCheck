@@ -141,26 +141,103 @@ class PgliteDb implements Db {
   }
 }
 
-type DbConfig = Pick<AppConfig, 'databaseUrl' | 'pgliteDir'> & Partial<Pick<AppConfig, 'databaseSslCaFile' | 'databaseSslAllowUnverified'>>;
+type DbConfig = Pick<AppConfig, 'databaseUrl' | 'pgliteDir'> &
+  Partial<Pick<AppConfig, 'databaseSslCaFile' | 'databaseSslCaPem' | 'databaseSslCaBase64' | 'databaseSslAllowUnverified' | 'databasePoolMax'>>;
+
+const PEM_RE = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/;
+
+/**
+ * Resolve the CA certificate used to verify the database server. Sources, in order:
+ * DATABASE_SSL_CA_PEM (the certificate text), DATABASE_SSL_CA_BASE64 (the same text,
+ * base64-encoded on one line — easiest for GitHub/Render secrets), DATABASE_SSL_CA_FILE.
+ * Returns where it came from so startup logs can say so without printing it.
+ */
+export function resolveCaCertificate(config: DbConfig): { ca: string; source: 'pem' | 'base64' | 'file' } | null {
+  if (config.databaseSslCaPem) {
+    // Secrets UIs sometimes turn newlines into literal "\n".
+    const pem = config.databaseSslCaPem.replace(/\\n/g, '\n').trim();
+    if (!PEM_RE.test(pem)) throw new Error('DATABASE_SSL_CA_PEM does not contain a PEM certificate (expected -----BEGIN CERTIFICATE-----).');
+    return { ca: pem, source: 'pem' };
+  }
+  if (config.databaseSslCaBase64) {
+    const decoded = Buffer.from(config.databaseSslCaBase64.replace(/\s+/g, ''), 'base64').toString('utf8').trim();
+    if (!PEM_RE.test(decoded)) throw new Error('DATABASE_SSL_CA_BASE64 did not decode to a PEM certificate. Encode the whole .crt file, e.g. `base64 -w0 prod-ca-2021.crt`.');
+    return { ca: decoded, source: 'base64' };
+  }
+  if (config.databaseSslCaFile) return { ca: fs.readFileSync(config.databaseSslCaFile, 'utf8'), source: 'file' };
+  return null;
+}
 
 /**
  * TLS for remote Postgres. Certificates are verified by default. Supabase signs with its
- * own CA: download it from the Supabase dashboard and set DATABASE_SSL_CA_FILE.
- * DATABASE_SSL_ALLOW_UNVERIFIED=true is an explicit, documented opt-out.
+ * own CA: supply it through DATABASE_SSL_CA_PEM / DATABASE_SSL_CA_BASE64 / DATABASE_SSL_CA_FILE.
+ * DATABASE_SSL_ALLOW_UNVERIFIED=true is an explicit, documented opt-out (not recommended).
  */
-function sslOptions(config: DbConfig): pg.PoolConfig['ssl'] {
+export function sslOptions(config: DbConfig): pg.PoolConfig['ssl'] {
   const url = config.databaseUrl ?? '';
-  if (/localhost|127\.0\.0\.1/.test(url) || /sslmode=disable/.test(url)) return undefined;
-  if (config.databaseSslCaFile) return { ca: fs.readFileSync(config.databaseSslCaFile, 'utf8') };
+  if (isLocalDatabaseUrl(url) || /sslmode=disable/.test(url)) return undefined;
+  const ca = resolveCaCertificate(config);
+  if (ca) return { ca: ca.ca, rejectUnauthorized: true };
   if (config.databaseSslAllowUnverified) return { rejectUnauthorized: false };
   return true;
+}
+
+export function isLocalDatabaseUrl(url: string): boolean {
+  try {
+    return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(new URL(url).hostname);
+  } catch {
+    return /localhost|127\.0\.0\.1/.test(url);
+  }
+}
+
+/** A log-safe description of the database target: host, port and database name only — never credentials. */
+export function describeDatabaseUrl(url: string | undefined): string {
+  if (!url) return 'embedded PGlite';
+  try {
+    const u = new URL(url);
+    return `PostgreSQL at ${u.hostname}${u.port ? `:${u.port}` : ''}${u.pathname || ''}`;
+  } catch {
+    return 'PostgreSQL (unparseable DATABASE_URL)';
+  }
+}
+
+/** How the database connection is secured (labels only — never the certificate or URL). */
+export function describeTls(config: DbConfig): string {
+  try {
+    const ssl = sslOptions(config);
+    if (ssl === undefined) return 'local connection (no TLS)';
+    const ca = resolveCaCertificate(config);
+    if (ca) return `TLS verified with custom CA (${ca.source === 'file' ? 'DATABASE_SSL_CA_FILE' : ca.source === 'pem' ? 'DATABASE_SSL_CA_PEM' : 'DATABASE_SSL_CA_BASE64'})`;
+    if (typeof ssl === 'object' && ssl.rejectUnauthorized === false) return 'TLS WITHOUT certificate verification (DATABASE_SSL_ALLOW_UNVERIFIED=true)';
+    return 'TLS verified with system CAs';
+  } catch (err) {
+    return `TLS misconfigured: ${(err as Error).message}`;
+  }
+}
+
+/**
+ * node-postgres treats sslmode=require/verify-* in the URL as "build my own TLS config",
+ * which would silently replace the verified CA configured above. Strip those parameters so
+ * the explicit `ssl` option is always the one in force.
+ */
+export function stripSslParams(url: string): string {
+  try {
+    const u = new URL(url);
+    for (const k of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'ssl']) {
+      if (k === 'sslmode' && u.searchParams.get(k) === 'disable') continue;
+      u.searchParams.delete(k);
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
 }
 
 export async function createDb(config: DbConfig, opts: { memory?: boolean } = {}): Promise<Db> {
   if (config.databaseUrl && !opts.memory) {
     const pool = new pg.Pool({
-      connectionString: config.databaseUrl,
-      max: 8,
+      connectionString: stripSslParams(config.databaseUrl),
+      max: config.databasePoolMax ?? 8,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 15_000,
       ssl: sslOptions(config),

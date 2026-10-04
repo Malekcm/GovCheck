@@ -189,6 +189,7 @@ export async function recomputeOpportunity(db: Db, opportunityId: string, opts: 
        (SELECT count(*)::int FROM opportunity_documents WHERE opportunity_id = $1) AS docs,
        (SELECT count(*)::int FROM opportunity_contacts WHERE opportunity_id = $1) AS contacts,
        (SELECT count(*)::int FROM opportunity_awards WHERE opportunity_id = $1 AND status = 'active') AS awards,
+       (SELECT count(*)::int FROM opportunity_awards WHERE opportunity_id = $1 AND status = 'active' AND relationship = 'award_of') AS award_of,
        (SELECT count(*)::int FROM opportunity_requirements WHERE opportunity_id = $1 AND is_current AND category IN ('evaluation_factor')) AS eval_criteria,
        (SELECT string_agg(DISTINCT sr.connector_id, ',') FROM opportunity_sources os JOIN source_records sr ON sr.id = os.source_record_id WHERE os.opportunity_id = $1) AS connectors,
        (SELECT count(*)::int FROM opportunity_sources WHERE opportunity_id = $1) AS sources,
@@ -306,6 +307,10 @@ export async function recomputeOpportunity(db: Db, opportunityId: string, opts: 
     expected_solicitation: stats.expected_solicitation ? new Date(stats.expected_solicitation).toISOString().slice(0, 10) : null,
     contract_vehicle: next.contract_vehicle ?? null,
     pricing_type: next.pricing_type ?? null,
+    // Added in schema 004 (same rule: only compared when both snapshots have them).
+    notice_type: next.notice_type ?? null,
+    department_name: next.department_name ?? null,
+    award_of: stats.award_of ?? 0,
   };
   const hash = contentHash(snapshot);
   const eventTypes: string[] = [];
@@ -359,8 +364,15 @@ async function diffEvents(db: Db, opportunityId: string, prev: any, next: any, h
   }
   if (prev.status !== next.status) {
     if (next.status === 'cancelled') await add('CANCELLED', 'Notice cancelled at the source', 'status', prev.status, next.status);
+    else if (next.status === 'active' && ['closed', 'archived', 'cancelled'].includes(prev.status)) await add('REOPENED', `Reopened (was ${prev.status})`, 'status', prev.status, next.status);
     else await add('STATUS_CHANGED', `Status changed: ${prev.status} → ${next.status}`, 'status', prev.status, next.status);
   }
+  if (both('notice_type') && stableStringify(prev.notice_type) !== stableStringify(next.notice_type))
+    await add('NOTICE_TYPE_CHANGED', `Notice type changed: ${prev.notice_type ?? 'none'} → ${next.notice_type ?? 'none'}`, 'notice_type', prev.notice_type, next.notice_type);
+  if (both('department_name') && stableStringify(prev.department_name) !== stableStringify(next.department_name))
+    await add('AGENCY_CHANGED', `Agency changed: ${prev.department_name ?? 'none'} → ${next.department_name ?? 'none'}`, 'department_name', prev.department_name, next.department_name);
+  if (both('award_of') && !prev.award_of && next.award_of > 0 && prev.stage === next.stage)
+    await add('AWARD_INFO_ADDED', 'Award information added', 'award', prev.award_of, next.award_of);
   if (both('desc_sents') && Array.isArray(prev.desc_sents) && prev.desc_sents.length && next.desc_sents.length) {
     const d = diffScope(prev.desc_sents, scopeSentences(description));
     // Noise control: ignore single tiny edits; report real requirement text changes.

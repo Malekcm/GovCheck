@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -19,8 +19,9 @@ import {
   Users,
   UserCog,
   Rocket,
+  Crosshair,
 } from 'lucide-react';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { relative } from './format';
 import { ToastHost, toast } from './components/ui';
 import { DashboardPage } from './pages/Dashboard';
@@ -40,6 +41,7 @@ import { LoginPage } from './pages/Login';
 import { PipelinePage } from './pages/Pipeline';
 import { DataQualityPage } from './pages/DataQuality';
 import { ExpiringPage } from './pages/Expiring';
+import { TargetedSearchPage } from './pages/TargetedSearch';
 
 function useSyncStatus() {
   const qc = useQueryClient();
@@ -80,6 +82,7 @@ function Nav({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
       </div>
       {link('/', <LayoutDashboard size={15} />, 'Dashboard')}
       {link('/pipeline', <KanbanSquare size={15} />, 'Capture pipeline')}
+      {link('/search', <Crosshair size={15} />, 'Targeted search')}
       <div className="nav-section">Work queues</div>
       {(queues.data ?? []).map((q) => (
         <NavLink key={q.slug} to={`/opportunities?queue=${q.slug}`} onClick={onNavigate} className={() => (new URLSearchParams(window.location.search).get('queue') === q.slug && window.location.pathname === '/opportunities' ? 'active' : '')}>
@@ -111,15 +114,6 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
   const location = useLocation();
   const [q, setQ] = useState('');
   const status = useSyncStatus();
-  const qc = useQueryClient();
-  const refresh = useMutation({
-    mutationFn: () => api.post('/api/sync/all', { mode: 'incremental' }),
-    onSuccess: () => {
-      toast('Refreshing all sources… you can keep working.');
-      qc.invalidateQueries({ queryKey: ['sync-status'] });
-    },
-    onError: (e: Error) => toast(e.message),
-  });
   useEffect(() => {
     if (location.pathname !== '/opportunities') setQ('');
   }, [location.pathname]);
@@ -145,25 +139,52 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
           {status.runs?.[0] && <span className="num">· {status.runs[0].records_retrieved} retrieved</span>}
         </span>
       ) : (
-        <SyncAge />
+        <DataFreshness />
       )}
-      <button className="btn primary" disabled={!!status?.running || refresh.isPending} onClick={() => refresh.mutate()}>
-        <RefreshCw size={14} /> Refresh all sources
-      </button>
     </header>
   );
 }
 
-function SyncAge() {
-  const runs = useQuery({ queryKey: ['last-run'], queryFn: () => api.get<any[]>('/api/sync/runs'), refetchInterval: 60_000 });
-  const last = runs.data?.find((r) => !r.connector_id.startsWith('engine:') && r.status !== 'skipped');
-  return <span className="small muted hide-mobile">{last ? `Last sync ${relative(last.finished_at ?? last.started_at)}` : 'Never synced'}</span>;
+/**
+ * Signing in only shows what the shared database already holds. Sources are checked on a
+ * schedule; the manual controls live on Sources & sync.
+ */
+function DataFreshness() {
+  const o = useQuery({ queryKey: ['sync-overview'], queryFn: () => api.get<any>('/api/sync/overview'), refetchInterval: 60_000 });
+  if (!o.data) return null;
+  const next = o.data.nextScheduledCheck;
+  return (
+    <NavLink to="/sources" className="small muted hide-mobile" title="Sources & sync" style={{ textDecoration: 'none' }}>
+      <RefreshCw size={12} style={{ verticalAlign: '-1px' }} /> {o.data.dataCurrentAsOf ? `Data current as of ${relative(o.data.dataCurrentAsOf)}` : 'No source data synced yet'}
+      {next && <> · next check {next === 'now' ? 'due now' : relative(next)}</>}
+    </NavLink>
+  );
+}
+
+/** Shown while a sleeping free-tier server wakes up (or the database is briefly unreachable). */
+function WakingUp({ attempt }: { attempt: number }) {
+  return (
+    <div style={{ display: 'grid', placeItems: 'center', height: '100%', padding: 24, textAlign: 'center' }}>
+      <div className="card" style={{ padding: 24, maxWidth: 420 }}>
+        <div className="row" style={{ justifyContent: 'center', marginBottom: 10 }}>
+          <span className="spinner" /> <strong>Connecting to GovCheck…</strong>
+        </div>
+        <p className="small muted">The server goes to sleep when nobody has used it for a while and takes up to a minute to wake up. This page keeps trying automatically{attempt > 1 ? ` (attempt ${attempt})` : ''}.</p>
+      </div>
+    </div>
+  );
 }
 
 export function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [unauth, setUnauth] = useState(false);
-  const me = useQuery({ queryKey: ['me'], queryFn: () => api.get<{ authRequired: boolean; authenticated: boolean }>('/api/auth/me') });
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get<{ authRequired: boolean; authenticated: boolean }>('/api/auth/me'),
+    // A waking server answers 503 (or not at all) for up to a minute: keep retrying quietly.
+    retry: (count, err) => count < 60 && (!(err instanceof ApiError) || err.status >= 500),
+    retryDelay: 3000,
+  });
   useEffect(() => {
     const h = () => setUnauth(true);
     window.addEventListener('goi:unauthorized', h);
@@ -173,7 +194,8 @@ export function App() {
     api.post('/api/session/visit').catch(() => undefined);
   }, []);
 
-  if (me.isLoading) return null;
+  if (me.isLoading) return me.failureCount > 0 ? <WakingUp attempt={me.failureCount} /> : null;
+  if (me.isError) return <WakingUp attempt={me.failureCount} />;
   if ((me.data?.authRequired && !me.data.authenticated) || unauth) return <LoginPage onDone={() => window.location.reload()} />;
 
   return (
@@ -201,6 +223,7 @@ export function App() {
             <Route path="/vendors" element={<VendorsPage />} />
             <Route path="/vendors/:id" element={<VendorDetailPage />} />
             <Route path="/learning" element={<LearningPage />} />
+            <Route path="/search" element={<TargetedSearchPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

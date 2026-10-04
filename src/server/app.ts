@@ -13,6 +13,7 @@ import { registerIntelRoutes } from './routes/intel';
 import { registerMetaRoutes } from './routes/meta';
 import { registerOpportunityRoutes } from './routes/opportunities';
 import { registerSourceRoutes } from './routes/sources';
+import { registerSearchRoutes } from './routes/search';
 
 export interface AppDeps {
   db: Db;
@@ -115,6 +116,7 @@ export function createApp(deps: AppDeps): Hono {
   registerOpportunityRoutes(app, deps);
   registerIntelRoutes(app, deps);
   registerSourceRoutes(app, deps);
+  registerSearchRoutes(app, deps);
 
   app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
   return app;
