@@ -1,21 +1,38 @@
-# Render.com blueprint (persistent Node web service; long syncs need a long-running process).
+# Render.com blueprint — GovCheck pilot on Render Free + Supabase.
+#
+# The web service only serves the app and the API. All state lives in Supabase
+# (DATABASE_URL); Render's disk is temporary and is never relied on.
+# Scheduled source checks run from GitHub Actions (.github/workflows/scheduled-sync.yml)
+# directly against Supabase, because a free instance sleeps when idle.
+# Step-by-step guide: docs/DEPLOY_SUPABASE_RENDER.md
 services:
   - type: web
     name: govcheck
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
-      - key: SCHEDULER_ENABLED
+      # Refuse to start on the temporary embedded database by mistake.
+      - key: REQUIRE_DATABASE_URL
         value: "true"
+      # GitHub Actions owns scheduled syncing; the free web instance would sleep anyway.
+      - key: SCHEDULER_ENABLED
+        value: "false"
+      # Small connection pool: Supabase Free allows a limited number of connections.
+      - key: DATABASE_POOL_MAX
+        value: "5"
       - key: DATABASE_URL
         sync: false
-      - key: DATABASE_SSL_CA_FILE
+      # Supabase CA certificate, base64-encoded on one line (see the deployment guide).
+      - key: DATABASE_SSL_CA_BASE64
         sync: false
       - key: SAM_API_KEY
         sync: false
+      - key: SAM_DAILY_REQUEST_LIMIT
+        value: "10"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: APP_PASSWORD

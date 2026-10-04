@@ -16,7 +16,7 @@ function url(ctx: ConnectorContext, params: Record<string, string | number>): st
 }
 
 async function search(ctx: ConnectorContext, params: Record<string, string | number>) {
-  await ctx.budget.consume(SAM_BUDGET_KEY);
+  await ctx.budget.consume(SAM_BUDGET_KEY, 1, { connectorId: 'sam_awards' });
   const res = await ctx.http.request<any>({ url: url(ctx, params), timeoutMs: 90_000, retries: 2, hostDelayMs: 1500 });
   return res.data ?? {};
 }
@@ -142,7 +142,7 @@ export const samAwardsAdapter: SourceAdapter = {
       yield { records: [], note: 'No NAICS codes on the company profile — add NAICS codes to pull relevant award history.' };
       return;
     }
-    const reserve = Number(ctx.settings.reserveRequests ?? 2);
+    const reserve = Number(ctx.settings.reserveRequests ?? ctx.config.samManualReserve);
     const today = new Date();
     const last = parseDate(cursor.lastModifiedTo as string | undefined);
     const from = last ? addDays(last, -2) : addDays(today, -Number(ctx.settings.initialLookbackDays ?? 30));

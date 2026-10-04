@@ -1,9 +1,31 @@
 import type { Db } from '../db';
 import { json } from '../db';
+import { contentHash } from '../lib/hash';
 import { CAPABILITY_TAXONOMY, FEEDBACK_REASONS, SYSTEM_QUEUES } from './capabilities';
 
-/** Idempotent reference data. Never touches user-entered rows. */
-export async function runSeed(db: Db): Promise<void> {
+/** Bump when runSeed's SQL changes so existing databases re-seed once. */
+const SEED_LOGIC_VERSION = 2;
+
+/**
+ * Idempotent reference data. Never touches user-entered rows.
+ *
+ * Re-seeding is ~200 statements; over a network connection (Supabase) that noticeably slows
+ * a cold start of a free-tier web instance. When the reference data is unchanged since the
+ * last seed (tracked by hash in app_state) and the company row exists, it is skipped.
+ */
+export async function runSeed(db: Db, opts: { force?: boolean } = {}): Promise<{ skipped: boolean }> {
+  const hash = contentHash({ v: SEED_LOGIC_VERSION, CAPABILITY_TAXONOMY, FEEDBACK_REASONS, SYSTEM_QUEUES });
+  if (!opts.force) {
+    const prev = await db.one<{ value: { hash: string } }>(`SELECT value FROM app_state WHERE key = 'seed:hash'`);
+    const company = await db.one('SELECT id FROM company_profiles LIMIT 1');
+    if (prev?.value.hash === hash && company) return { skipped: true };
+  }
+  await seedReferenceData(db);
+  await db.query(`INSERT INTO app_state (key, value) VALUES ('seed:hash', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [json({ hash, at: new Date().toISOString() })]);
+  return { skipped: false };
+}
+
+async function seedReferenceData(db: Db): Promise<void> {
   let order = 0;
   for (const cat of CAPABILITY_TAXONOMY) {
     const parent = await db.one<{ id: string }>(
@@ -15,7 +37,7 @@ export async function runSeed(db: Db): Promise<void> {
       await db.query(
         `INSERT INTO capabilities (slug, name, category, keywords, parent_id, is_custom, sort_order) VALUES ($1,$2,$3,$4::text[],$5,false,$6)
          ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, parent_id = EXCLUDED.parent_id, sort_order = EXCLUDED.sort_order,
-           keywords = CASE WHEN capabilities.is_custom THEN capabilities.keywords ELSE EXCLUDED.keywords END`,
+           keywords = CASE WHEN capabilities.is_custom OR capabilities.keywords_customized THEN capabilities.keywords ELSE EXCLUDED.keywords END`,
         [item.slug, item.name, cat.category, item.keywords ?? [], parent!.id, order++],
       );
     }

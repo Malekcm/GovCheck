@@ -305,7 +305,7 @@ export function registerCompanyRoutes(app: Hono, deps: AppDeps) {
 
   app.put('/api/capabilities/:capId', async (c) => {
     const b = z.object({ name: z.string().min(2).max(120).optional(), keywords: z.array(z.string().max(100)).max(60) }).parse(await readJson(c));
-    await db.query(`UPDATE capabilities SET keywords = $2::text[], name = COALESCE($3, name), is_custom = is_custom WHERE id::text = $1`, [c.req.param('capId'), b.keywords, b.name ?? null]);
+    await db.query(`UPDATE capabilities SET keywords = $2::text[], name = COALESCE($3, name), keywords_customized = true WHERE id::text = $1`, [c.req.param('capId'), b.keywords, b.name ?? null]);
     return c.json({ ok: true });
   });
 

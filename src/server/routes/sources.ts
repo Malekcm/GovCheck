@@ -3,8 +3,13 @@ import { z } from 'zod';
 import { HttpProblem, readJson, safeEqual, type AppDeps } from '../app';
 import { json } from '../db';
 import { getAdapter, builtinAdapter } from '../connectors/registry';
-import { focusFor, postProcess, runAllSources, runConnector, startExclusive, syncStatus } from '../pipeline/sync';
-import { runDueWork } from '../pipeline/scheduler';
+import { focusFor, postProcess, runAllSources, runConnector, sharedSyncStatus, startSharedExclusive } from '../pipeline/sync';
+import { dueDetails, runDueWork } from '../pipeline/scheduler';
+import { samBudgetStatus, withBudgetMeta } from '../pipeline/budget';
+import { samPriorityOverview } from '../pipeline/samPriority';
+import { storageDiagnostics } from '../pipeline/diagnostics';
+import { buildSearchTerms } from '../pipeline/searchTerms';
+import { loadCompanyContext } from '../scoring/profile';
 import { assertSafeUrlSyntax, UnsafeUrlError } from '../lib/urlSafety';
 
 const FeedSchema = z.object({
@@ -32,7 +37,7 @@ export function registerSourceRoutes(app: Hono, deps: AppDeps) {
          (SELECT max(finished_at) FROM sync_runs x WHERE x.connector_id = sc.id AND x.mode = 'reconcile' AND x.status IN ('success','partial_success')) AS last_reconciled_at
        FROM source_connectors sc LEFT JOIN sync_runs r ON r.id = sc.last_run_id ORDER BY CASE WHEN sc.source_type = 'engine' THEN 1 ELSE 0 END, sc.priority, sc.name`,
     );
-    const samUsage = await db.one<{ requests: number }>(`SELECT requests FROM api_usage WHERE connector_id = 'sam' AND usage_date = current_date`);
+    const sam = await samBudgetStatus(db, config);
     const out = rows.map((r) => {
       const a = builtinAdapter(r.id);
       return {
@@ -44,7 +49,52 @@ export function registerSourceRoutes(app: Hono, deps: AppDeps) {
         configuredReason: a ? a.isConfigured(config).reason ?? null : null,
       };
     });
-    return c.json({ sources: out, budget: { sam: { limit: config.samDailyRequestLimit, used: samUsage?.requests ?? 0 } }, status: syncStatus(), schedulerEnabled: config.schedulerEnabled });
+    return c.json({ sources: out, budget: { sam }, status: await sharedSyncStatus(db), schedulerEnabled: config.schedulerEnabled, overview: await syncOverview() });
+  });
+
+  /**
+   * "Data current as of …" / "Next scheduled check …" for the top of the app. Data freshness
+   * is the latest successful source run (any process: hosted app, GitHub Actions, CLI).
+   */
+  const syncOverview = async () => {
+    const last = await db.one<{ at: string | null }>(
+      `SELECT max(finished_at) AS at FROM sync_runs WHERE status IN ('success','partial_success') AND connector_id NOT LIKE 'engine:%' AND mode IN ('incremental','reconcile','priority')`,
+    );
+    const { onboardingComplete, details } = await dueDetails(db);
+    // Nothing runs on a schedule until the setup guide is finished.
+    const upcoming = onboardingComplete ? details.filter((d) => !d.due && d.nextAt).map((d) => d.nextAt!).sort() : [];
+    const dueNow = onboardingComplete ? details.filter((d) => d.due).map((d) => `${d.id}${d.kind === 'reconcile' ? ' (reconcile)' : ''}`) : [];
+    const heartbeat = await db.one<{ value: any }>(`SELECT value FROM app_state WHERE key = 'scheduler:last'`);
+    return {
+      dataCurrentAsOf: last?.at ?? null,
+      nextScheduledCheck: dueNow.length ? 'now' : upcoming[0] ?? null,
+      dueNow,
+      onboardingComplete,
+      lastSchedulerRun: heartbeat?.value ?? null,
+      inProcessScheduler: config.schedulerEnabled,
+    };
+  };
+
+  app.get('/api/sync/overview', async (c) => c.json({ ...(await syncOverview()), status: await sharedSyncStatus(db) }));
+
+  /** Today's SAM.gov budget and the prioritized list of live checks it will fund. Read-only. */
+  app.get('/api/sam/budget', async (c) => c.json({ status: await samBudgetStatus(db, config), plan: await samPriorityOverview(db, config) }));
+
+  /** Database size, growth and largest tables (admin guardrails). Read-only. */
+  app.get('/api/admin/storage', async (c) => c.json(await storageDiagnostics(db, config)));
+
+  /** Capability-derived discovery terms and the focused-ingestion settings that use them. */
+  app.get('/api/discovery/terms', async (c) => {
+    const co = await loadCompanyContext(db);
+    const terms = buildSearchTerms(co);
+    return c.json({
+      terms,
+      discoveryCount: terms.filter((t) => !t.generic).length,
+      negativeKeywords: co.negativeKeywords,
+      naics: co.naics,
+      psc: co.psc,
+      bulk: { mode: config.samBulkIngestMode, extraNaicsPrefixes: config.samBulkFocusNaicsPrefixes, lookbackDays: config.samBulkLookbackDays },
+    });
   });
 
   app.put('/api/sources/:id', async (c) => {
@@ -65,7 +115,8 @@ export function registerSourceRoutes(app: Hono, deps: AppDeps) {
     const adapter = await getAdapter(db, id);
     if (!adapter) throw new HttpProblem(404, 'Source not found');
     const row = await db.one<any>('SELECT config FROM source_connectors WHERE id = $1', [id]);
-    const result = await adapter.testConnection({ db, http: deps.http, config, log: deps.log, budget: deps.budget, settings: row?.config ?? {}, focus: await focusFor(db), shouldStop: () => false, params: {} });
+    const budget = withBudgetMeta(deps.budget, { category: 'test', connectorId: id });
+    const result = await adapter.testConnection({ db, http: deps.http, config, log: deps.log, budget, settings: row?.config ?? {}, focus: await focusFor(db), shouldStop: () => false, params: {} });
     await db.query('UPDATE source_connectors SET health = $2, health_message = $3, updated_at = now() WHERE id = $1', [id, result.status, result.message]);
     return c.json(result);
   });
@@ -74,7 +125,8 @@ export function registerSourceRoutes(app: Hono, deps: AppDeps) {
     const id = c.req.param('id');
     const b = z.object({ mode: z.enum(['incremental', 'reconcile']).default('incremental'), params: z.record(z.string(), z.unknown()).optional() }).parse(await readJson(c).catch(() => ({})));
     if (!(await getAdapter(db, id))) throw new HttpProblem(404, 'Source not found');
-    const r = startExclusive(
+    const r = await startSharedExclusive(
+      deps,
       `${id} ${b.mode}`,
       async () => {
         const res = await runConnector(deps, id, { mode: b.mode, triggeredBy: 'manual', params: b.params });
@@ -82,15 +134,25 @@ export function registerSourceRoutes(app: Hono, deps: AppDeps) {
           await db.query(`INSERT INTO app_state (key, value) VALUES ($1,$2::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [`reconcile:${id}`, json({ at: new Date().toISOString(), runId: res.runId })]);
         await postProcess(deps, { dirty: new Set(res.dirty), triggeredBy: 'manual', runRecompete: id === 'usaspending' || res.dirty.length > 0 });
       },
-      deps.log,
     );
     if (!r.started) throw new HttpProblem(409, `A sync is already running (${r.label}).`);
     return c.json({ started: true });
   });
 
+  /** Normal operation: run only the sources whose schedule says they are due. */
+  app.post('/api/sync/due', async (c) => {
+    const r = await runDueWork(deps, 'manual');
+    if (r.started) return c.json({ started: true, work: r.work });
+    if (r.label) throw new HttpProblem(409, `A sync is already running (${r.label}).`);
+    const overview = await syncOverview();
+    const message = overview.onboardingComplete ? 'Every source is up to date — nothing is due yet.' : 'Scheduled checks start once the Setup guide is finished.';
+    return c.json({ started: false, nothingDue: true, work: r.work, nextScheduledCheck: overview.nextScheduledCheck, message });
+  });
+
+  /** Advanced: run every enabled source regardless of schedule (heavier; spends SAM requests). */
   app.post('/api/sync/all', async (c) => {
     const b = z.object({ mode: z.enum(['incremental', 'reconcile']).default('incremental') }).parse(await readJson(c).catch(() => ({})));
-    const r = startExclusive(`Refresh all sources${b.mode === 'reconcile' ? ' (reconcile)' : ''}`, () => runAllSources(deps, { triggeredBy: 'manual', mode: b.mode }), deps.log);
+    const r = await startSharedExclusive(deps, `Refresh all sources${b.mode === 'reconcile' ? ' (full reconciliation)' : ''}`, () => runAllSources(deps, { triggeredBy: 'manual', mode: b.mode }));
     if (!r.started) throw new HttpProblem(409, `A sync is already running (${r.label}).`);
     return c.json({ started: true });
   });
@@ -100,7 +162,7 @@ export function registerSourceRoutes(app: Hono, deps: AppDeps) {
       `SELECT r.id, r.connector_id, sc.name, r.mode, r.started_at, r.records_retrieved, r.records_created, r.records_updated, r.records_unchanged, r.records_failed
        FROM sync_runs r JOIN source_connectors sc ON sc.id = r.connector_id WHERE r.status = 'running' ORDER BY r.started_at DESC`,
     );
-    return c.json({ ...syncStatus(), runs: running });
+    return c.json({ ...(await sharedSyncStatus(db)), runs: running });
   });
 
   app.get('/api/sync/runs', async (c) => {
@@ -160,8 +222,8 @@ export function registerSourceRoutes(app: Hono, deps: AppDeps) {
     if (!token || !safeEqual(token, config.cronSecret)) throw new HttpProblem(401, 'Invalid cron secret.');
     const mode = c.req.query('mode');
     if (mode === 'all') {
-      const r = startExclusive('Cron: refresh all sources', () => runAllSources(deps, { triggeredBy: 'cron' }), deps.log);
-      return c.json(r);
+      const r = await startSharedExclusive(deps, 'Cron: refresh all sources', () => runAllSources(deps, { triggeredBy: 'cron' }));
+      return c.json({ started: r.started, label: r.label });
     }
     return c.json(await runDueWork(deps, 'cron'));
   });

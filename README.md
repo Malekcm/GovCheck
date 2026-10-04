@@ -4,6 +4,8 @@ GovCheck continuously discovers, consolidates, enriches, scores and tracks poten
 
 Every record from every source is kept verbatim. Records about the same procurement are consolidated into one **Opportunity Profile** whose every value carries provenance — **OFFICIAL**, **DERIVED**, **ESTIMATED**, **AI EXTRACTED**, **USER ENTERED** or **UNKNOWN** — so inferred information never looks official. Refreshes never delete history or touch your decisions, notes, tags or manual links. The system builds a proprietary, growing dataset of agencies, offices, contracts, vendors, incumbents, pricing and your own pursuit decisions.
 
+**Hosting for a team:** GovCheck runs on **Supabase** (shared database) + **Render Free** (web app) + **GitHub Actions** (scheduled source checks). Your existing local data can be promoted with one command. Step-by-step: **[docs/DEPLOY_SUPABASE_RENDER.md](docs/DEPLOY_SUPABASE_RENDER.md)**.
+
 ---
 
 ## Contents
@@ -106,17 +108,27 @@ See [`.env.example`](.env.example) for the complete annotated list.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DATABASE_URL` | Production | Postgres/Supabase connection string. Empty → embedded PGlite. |
-| `DATABASE_SSL_CA_FILE` | With Supabase | Path to Supabase's CA certificate (TLS is verified by default). |
+| `DATABASE_URL` | Hosted | Postgres/Supabase connection string (Supabase: Session pooler). Empty → embedded PGlite. |
+| `DATABASE_SSL_CA_BASE64` / `DATABASE_SSL_CA_PEM` / `DATABASE_SSL_CA_FILE` | With Supabase | Supabase's CA certificate as a one-line base64 secret, as PEM text, or as a file path. TLS is always verified. |
+| `DATABASE_SSL_ALLOW_UNVERIFIED` | — | Explicit, not-recommended opt-out of certificate verification. |
+| `DATABASE_POOL_MAX` | — | Connections per process (default 8; Render blueprint uses 5, GitHub Actions 3). |
+| `REQUIRE_DATABASE_URL` | Hosted | `true` refuses to start on the temporary embedded database. |
+| `TARGET_DATABASE_URL` | Promotion only | Target of `npm run db:promote` (falls back to `DATABASE_URL`). |
 | `SAM_API_KEY` | For SAM APIs | SAM.gov public API key (server-side only). |
-| `SAM_DAILY_REQUEST_LIMIT` | — | Daily SAM request ceiling (default **10** = non-federal personal key). |
+| `SAM_DAILY_REQUEST_LIMIT` | — | Daily SAM request ceiling shared by every GovCheck process (default **10** = non-federal personal key). |
+| `SAM_MANUAL_RESERVE_REQUESTS` | — | Requests scheduled work leaves for manual refreshes/targeted searches (default 20% of the limit). |
+| `SAM_TARGETED_SEARCH_MAX_REQUESTS` | — | Request ceiling for one targeted search (default 3). |
+| `SAM_TRACKED_REFRESH_HOURS`, `SAM_STALE_DAYS`, `SAM_PRIORITY_MIN_FIT` | — | SAM priority-check thresholds (24 h, 7 days, fit 60). |
 | `SAM_DOWNLOAD_DOCUMENTS` | — | Download SAM attachments (uses the SAM budget). Default false. |
+| `SAM_BULK_INGEST_MODE` | — | `focused` (default: relevant or already-tracked notices only) or `full`. |
+| `SAM_BULK_FOCUS_NAICS_PREFIXES` | — | Extra NAICS prefixes always kept by focused bulk ingestion. |
+| `DB_SIZE_WARN_MB`, `DB_SIZE_LIMIT_MB` | — | Storage warnings (default 400 / 500 MB = Supabase Free). |
 | `ANTHROPIC_API_KEY` | Optional | Enables AI extraction/summaries. |
 | `ANTHROPIC_MODEL` | — | Default `claude-opus-5-5`. |
 | `CRON_SECRET` | For external cron | Bearer secret for `POST /api/cron/sync`. |
 | `APP_PASSWORD` | Recommended when hosted | Single shared password; HttpOnly signed session cookie. |
 | `SESSION_SECRET` | — | Cookie signing secret. |
-| `SCHEDULER_ENABLED` | — | In-process scheduler (default on when `NODE_ENV=production`). |
+| `SCHEDULER_ENABLED` | — | In-process scheduler (default on when `NODE_ENV=production`; `false` on Render when GitHub Actions schedules). |
 | `PORT`, `APP_BASE_URL` | — | Server port / public URL. |
 
 **SSRF protection:** custom feed URLs, document links and robots.txt lookups may only reach public hosts — every redirect hop is re-checked; loopback, private, link-local (cloud metadata) and reserved ranges are refused. **Exports** neutralize spreadsheet formulas (CSV/XLSX injection) and never truncate silently.
@@ -134,14 +146,22 @@ npm run migrate
 ```
 
 ### Using Supabase
+Full walkthrough (including promoting an existing local database): **[docs/DEPLOY_SUPABASE_RENDER.md](docs/DEPLOY_SUPABASE_RENDER.md)**. In short:
 1. Create a Supabase project.
-2. *Project Settings → Database → Connection string*: copy the **Session pooler** (or direct) URI into `DATABASE_URL`.
-3. Download the SSL certificate (*Database → SSL Configuration*) and set `DATABASE_SSL_CA_FILE=/path/to/prod-ca.crt`. (`DATABASE_SSL_ALLOW_UNVERIFIED=true` is an explicit, not-recommended opt-out.)
-4. Start the server — migrations create the schema.
+2. **Connect → Session pooler**: copy the URI into `DATABASE_URL` (IPv4; works from Render and GitHub Actions).
+3. Download the CA certificate (*Settings → Database → SSL configuration*) and supply it as `DATABASE_SSL_CA_FILE` (local), or base64-encoded on one line as `DATABASE_SSL_CA_BASE64` (Render / GitHub secrets).
+4. Start the server — migrations create the schema. Migrations take a database advisory lock, so several processes can start at once safely.
+
+### Promoting an existing local (PGlite) database
+```bash
+npm run db:promote -- --dry-run   # what would be copied; writes nothing
+npm run db:promote                # copy into TARGET_DATABASE_URL (or DATABASE_URL)
+```
+The local `./data/pglite` is never modified (a temporary snapshot copy is read). All tables are copied with their UUIDs and relationships — raw records and every version, opportunities, events, snapshots, scores, decisions, notes, capture, cursors, sync history and API usage — in resumable, insert-only batches, then every row is verified by primary key and a report is printed and saved to `data/`. Re-running is safe and copies only what is missing. Conflicting data already in the target stops the promotion before anything is written.
 
 **Row-level security**: migration `002` enables RLS on every table with *no* permissive policies. The browser never talks to Supabase directly; the server connects with the privileged role, so Supabase's auto-generated REST/GraphQL APIs expose nothing even if an anon key leaks.
 
-**Backups / portability**: `GET /api/export/backup.json` (the **Export backup** button on the Company profile page) exports everything you created — profile, capabilities, decisions (with history), notes, tags, overrides, manual relationships, merges and preference-model history. Use Supabase's point-in-time backups for full database backups. With PGlite, copy the `data/pglite` directory while the server is stopped.
+**Backups / portability**: `GET /api/export/backup.json` (the **Export backup** button on the Company profile page) exports everything you created — profile, capabilities, decisions (with history), notes, tags, overrides, manual relationships, merges and preference-model history. Supabase's paid plans add database backups. With PGlite, copy the `data/pglite` directory while the server is stopped.
 
 ---
 
@@ -164,7 +184,7 @@ All sources implement one adapter interface (`src/server/connectors/types.ts`):
 | Source | Access | Key | What it provides | Notes |
 |---|---|---|---|---|
 | **SAM.gov Contract Opportunities API** | Official API | `SAM_API_KEY` | All notice types (sources sought, RFI, presolicitation, solicitation, combined synopsis, special notices, award notices), full agency hierarchy, NAICS, PSC, set-aside, place of performance, contacts, resource links, award data | Ingests *all* notices in the posted-date window (not keyword-filtered). 3-day overlap. Budgeted & resumable. Self-detects whether `offset` is a page index or a record offset. |
-| **SAM.gov Data Services (bulk CSV)** | Official bulk file | — | Full daily extract (~220 MB) incl. full description text; archived fiscal-year files | Reconciliation only (weekly by default). Streams, decodes Windows-1252, filters to notices posted in `SAM_BULK_LOOKBACK_DAYS` or still open; unchanged rows skipped by hash. Archived FY import filtered to your NAICS groups. |
+| **SAM.gov Data Services (bulk CSV)** | Official bulk file | — | Full daily extract (~220 MB) incl. full description text; archived fiscal-year files | Reconciliation only (daily by default). Streams, decodes Windows-1252, considers notices posted in `SAM_BULK_LOOKBACK_DAYS` or still open; in `focused` mode (default) stores only profile-relevant or already-tracked notices; unchanged rows skipped by hash. Archived FY import is profile-filtered. |
 | **SAM.gov Contract Awards API** | Official API | `SAM_API_KEY` | PIID, modifications, IDV, solicitation ID, obligations, base+options, pricing type, competition, offers, business size, awardee UEI/CAGE | Incremental by last-modified date for your NAICS; targeted lookups by solicitation ID/PIID during opportunity refresh. Award families keyed by IDV+PIID. |
 | **USAspending.gov** | Official API | — | Prime awards **and IDVs (IDIQ/GWAC/BPA/FSS)**, obligations, outlays, periods of performance, recipients, agencies, solicitation identifiers, subaward counts | Scheduled **recompete scan**: for each profile NAICS, binary-searches the End-Date-sorted contracts (and *Last Date to Order*-sorted IDVs) to the first one ending after today, then walks forward to the 18-month horizon. Also used for incumbent, pricing and agency analysis. Executive-compensation names are stripped (personal data). |
 | **GSA Acquisition Gateway Forecasts** | Public JSON listing | — | Government-wide procurement forecasts: agency, sub-agency, NAICS, value band, award FY, acquisition strategy, award status (incl. recompete hints; *Exercise of Option* flagged as not a new competition) | Forecast **detail pages require a login.gov session and are not accessed**, so forecast contacts are not collected. Page-view counters are excluded from snapshots to avoid false “changes”. **The live listing repeats page 2 as page 1** — the connector measures unique vs. reported records and marks the source *degraded* with the coverage % rather than green. |
@@ -197,15 +217,22 @@ after all sources: recompete engine ─▶ score ─▶ USAspending enrichment (
 - **Coverage warnings**: a connector that cannot see everything the source says exists (duplicate pages, collapsed listings) reports a warning; the run becomes *partial_success*, the source *degraded*, and the warning is logged and shown on **Data quality**.
 - Records that disappear from a full listing are marked **not seen** — never deleted.
 
-Manual controls: **Refresh all sources** (top bar), per-source **Sync/Reconcile/Test** (Sources page), **Refresh this opportunity** (dossier: re-fetches each contributing record by identifier, pulls SAM awards by solicitation ID, USAspending history, documents, re-scores — user data untouched).
+**Normal operation is scheduled and incremental.** Signing in only shows what the database holds. Sources are checked when *they* are due; previously downloaded unchanged records are skipped by content hash and are never re-enriched, re-scored or re-analyzed.
+
+Manual controls (Sources & sync): **Check due sources now** (runs only due sources), per-source **Sync/Reconcile/Test**, and under *Advanced* **Refresh all sources** and **Full reconciliation** (heavier; confirmation with a warning). **Refresh this opportunity** on the dossier re-fetches each contributing record by identifier, pulls SAM awards by solicitation ID, USAspending history, documents, re-scores — user data untouched. **Targeted search** searches GovCheck first and only contacts SAM.gov after an explicit confirmation that shows the request cost.
+
+**What changed?** *Recent changes* has one-click views — since yesterday, new opportunities this week, amendments on watched/pursued opportunities — plus `scope=tracked` / `meaningful=true` / `since=<ISO time>` filters on `/api/changes`; each dossier's change history can be narrowed to "since our decision" (`/api/opportunities/:id/changes?since=decision`). Events added by schema 004: REOPENED, NOTICE_TYPE_CHANGED, AGENCY_CHANGED, AWARD_INFO_ADDED.
 
 CLI equivalents:
 
 ```bash
-npm run sync                     # all sources, incremental + derived intelligence
-npm run sync -- reconcile        # reconciliation pass (bulk CSV, full listings)
+npm run sync:due                 # NORMAL: only sources that are due (+ derived intelligence for what changed)
+npm run sync:due -- --dry-run    # what is due, and how SAM requests would be spent
+npm run status                   # freshness, schedule, SAM budget, database size
+npm run sync                     # advanced: every source now, incremental
+npm run sync -- reconcile        # advanced: reconciliation pass (bulk CSV, full listings)
 npm run sync -- usaspending      # one source
-npm run sync -- archive 2025     # import archived SAM FY2025 (filtered to your NAICS)
+npm run sync -- archive 2025     # import archived SAM FY2025 (profile-filtered)
 npx tsx src/server/cli.ts score  # rescore everything
 ```
 
@@ -215,21 +242,28 @@ npx tsx src/server/cli.ts score  # rescore everything
 
 | Job | Default cadence |
 |---|---|
-| SAM Opportunities API | every 6 h (budget-aware) |
+| SAM Opportunities API (priority checks, then new-notice feed) | every 6 h (budget-aware) |
 | SAM Contract Awards | daily |
 | GSA forecasts | daily (+ weekly full reconciliation) |
 | DHS APFS forecasts | daily |
 | SBA SUBNet | daily |
 | Grants.gov | daily |
 | USAspending recompete scan | daily |
-| SAM bulk extract reconciliation | weekly |
+| SAM bulk extract reconciliation (free; focused ingestion) | daily |
 | Derived engines | after every sync |
 
-Two ways to run them:
-1. **In-process scheduler** (`SCHEDULER_ENABLED=true`, default in production): checks every 5 minutes for due work. Scheduled syncs start only after onboarding is complete.
-2. **External cron**: `POST /api/cron/sync` with `Authorization: Bearer $CRON_SECRET` runs whatever is due (`?mode=all` forces a full refresh). A ready-made GitHub Actions workflow is in `.github/workflows/scheduled-sync.yml` (enable with the repo variable `GOVCHECK_SCHEDULED_SYNC=true` and secrets `GOVCHECK_URL`, `GOVCHECK_CRON_SECRET`).
+Three ways to run them (all run only what is due):
+1. **GitHub Actions** (recommended for free hosting): `.github/workflows/scheduled-sync.yml` runs `npm run sync:due` every 3 hours **directly against Supabase**, so it does not depend on a sleeping web instance. Enable with the repository variable `GOVCHECK_SCHEDULED_SYNC=true` and the secrets `DATABASE_URL`, `DATABASE_SSL_CA_BASE64`, `SAM_API_KEY` (and optionally `ANTHROPIC_API_KEY`). Manual runs (`workflow_dispatch`) offer a dry-run option.
+2. **In-process scheduler** (`SCHEDULER_ENABLED=true`, default in production) for always-on hosts: checks every 5 minutes. Set it to `false` when GitHub Actions schedules (as `render.yaml` does).
+3. **External cron**: `POST /api/cron/sync` with `Authorization: Bearer $CRON_SECRET` (`?mode=all` forces a full refresh).
 
-Only one sync runs at a time; runs left “running” by a restart are marked failed on boot.
+Scheduled syncs start only after onboarding is complete. Only one process syncs at a time: an expiring **database lease** coordinates the web app, GitHub Actions and any CLI, and runs left “running” by a crashed process are marked failed only when no process holds the lease.
+
+### SAM.gov request budget
+The daily limit is enforced atomically in the database across all processes, and every request is journaled with a category (Sources & sync → *SAM.gov API budget* shows limit, used, remaining, reserve, usage by category and reset time). Scheduled work uses only *limit − reserve* and spends it in priority order: (1) Pursue/Interested/Watch and active-capture opportunities (searched by solicitation number to catch amendments; description re-fetched only when the notice changed), (2) relevant active opportunities closing within 21 days with data older than 2 days, (3) strong matches with stale data, (4) new strong matches from the bulk file never fetched live, then the general new-notice feed. Targeted searches and manual refreshes may use the reserve. Breadth comes from free sources (SAM bulk extract, USAspending, forecasts, SUBNet, Grants.gov).
+
+### Focused bulk ingestion and capability terms
+In `focused` mode the free SAM bulk file is still scanned in full, but a notice is stored only if it matches the company NAICS (or its 4-digit industry group / `SAM_BULK_FOCUS_NAICS_PREFIXES`), PSC, a capability/keyword **discovery term** in the title (or two in the description), a preferred agency within the company's NAICS sectors — or if GovCheck **already tracks** it (same notice ID or solicitation number), so later profile changes never stop change tracking. Discovery terms are derived from confirmed capabilities, their keywords and technologies, and company keywords; single generic words are excluded. They are listed on Sources & sync and edited on the Company page (edits to built-in capability keywords now survive restarts).
 
 ---
 
@@ -303,7 +337,9 @@ Deterministic **rule-based extraction** (always on, labeled DERIVED with quoted 
 
 ## Deployment
 
-The app is one Node process (API + built SPA + scheduler) plus PostgreSQL.
+The app is one Node process (API + built SPA + optional scheduler) plus PostgreSQL.
+
+**Free team pilot — Supabase + Render Free + GitHub Actions:** follow **[docs/DEPLOY_SUPABASE_RENDER.md](docs/DEPLOY_SUPABASE_RENDER.md)**. `render.yaml` deploys a `plan: free` Docker web service with `REQUIRE_DATABASE_URL=true` and `SCHEDULER_ENABLED=false`; all state is in Supabase. While a sleeping instance wakes up, the server answers immediately with a "starting" state and the browser shows *Connecting to GovCheck…*. Teammates need only the URL and `APP_PASSWORD`.
 
 **Docker** (any host):
 ```bash
@@ -311,11 +347,11 @@ docker build -t govcheck .
 docker run -p 8787:8787 --env-file .env -v govcheck-data:/app/data govcheck
 ```
 
-**Render**: `render.yaml` defines a Docker web service with health check `/api/health`; set `DATABASE_URL` (Supabase), `DATABASE_SSL_CA_FILE` (bundle the CA or mount a secret file), `SAM_API_KEY`, `APP_PASSWORD`, optionally `ANTHROPIC_API_KEY`.
+**Render**: `render.yaml` defines the web service with health check `/api/health`; it asks for `DATABASE_URL`, `DATABASE_SSL_CA_BASE64`, `SAM_API_KEY`, `APP_PASSWORD` and optionally `ANTHROPIC_API_KEY`, and generates `SESSION_SECRET`/`CRON_SECRET`.
 
 **Any VM / Fly.io / Railway**: `npm ci && npm run build && NODE_ENV=production npm start`.
 
-Recommended production settings: `DATABASE_URL` (Supabase), `APP_PASSWORD`, `CRON_SECRET`, `SESSION_SECRET`, `SCHEDULER_ENABLED=true` (or the external cron workflow). Serverless platforms with short function timeouts are not suitable for the sync workers.
+Recommended production settings: `DATABASE_URL` (Supabase) + `DATABASE_SSL_CA_BASE64`, `REQUIRE_DATABASE_URL=true`, `APP_PASSWORD`, `SESSION_SECRET`, and either `SCHEDULER_ENABLED=true` (always-on host) or the GitHub Actions workflow. Serverless platforms with short function timeouts are not suitable for the sync workers.
 
 ---
 
@@ -325,11 +361,12 @@ Recommended production settings: `DATABASE_URL` (Supabase), `APP_PASSWORD`, `CRO
 npm run lint
 npm run typecheck
 npm test            # vitest — fixtures only, no live government calls
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/govcheck_test npm test   # also run the real-PostgreSQL tests (CI does this)
 npm run build
 npm run check       # all of the above
 ```
 
-The suite (in-memory Postgres via PGlite + recorded real API fixtures) covers: SAM API & bulk normalization, SAM Contract Awards & USAspending normalization, GSA/SUBNet/Grants/RSS normalizers, identifier normalization, exact solicitation matching, cross-agency solicitation collisions, PIID matching, award linking with provenance, duplicate prevention, probabilistic relationship scoring (no auto-merge), merge + undo, raw snapshot retention, change detection, refresh preserving decisions/notes/tags, not-seen marking, coverage signals, explainable scoring & weights, eligibility rules, preference learning direction & decision history, retraining with PASS→PURSUE, failed-connector isolation, robots.txt compliance, USAspending page binary search, API secret non-exposure, password/cron auth, and a smoke test of every read endpoint. `tests/bd.test.ts` adds: DHS APFS normalization and exact incumbent/recompete linking, not-seen handling, GSA duplicate-page coverage warnings, scope-change detection (and no-noise on whitespace), derived cancellation, solicitation-released, upgrade-safe snapshots, sole-source detection, attractiveness/confidence/priority with eligibility capping, non-training decisions, capture journaling through refresh/merge/undo, compliance requirement extraction with explicit/mentioned strength, document classification, recommended actions, IDV end dates, SSRF guards, CSV formula neutralization, and every new endpoint/export.
+The suite (in-memory Postgres via PGlite + recorded real API fixtures) covers: SAM API & bulk normalization, SAM Contract Awards & USAspending normalization, GSA/SUBNet/Grants/RSS normalizers, identifier normalization, exact solicitation matching, cross-agency solicitation collisions, PIID matching, award linking with provenance, duplicate prevention, probabilistic relationship scoring (no auto-merge), merge + undo, raw snapshot retention, change detection, refresh preserving decisions/notes/tags, not-seen marking, coverage signals, explainable scoring & weights, eligibility rules, preference learning direction & decision history, retraining with PASS→PURSUE, failed-connector isolation, robots.txt compliance, USAspending page binary search, API secret non-exposure, password/cron auth, and a smoke test of every read endpoint. `tests/bd.test.ts` adds: DHS APFS normalization and exact incumbent/recompete linking, not-seen handling, GSA duplicate-page coverage warnings, scope-change detection (and no-noise on whitespace), derived cancellation, solicitation-released, upgrade-safe snapshots, sole-source detection, attractiveness/confidence/priority with eligibility capping, non-training decisions, capture journaling through refresh/merge/undo, compliance requirement extraction with explicit/mentioned strength, document classification, recommended actions, IDV end dates, SSRF guards, CSV formula neutralization, and every new endpoint/export. `tests/promote.test.ts`, `tests/hosting.test.ts` and `tests/sam.test.ts` cover the hosted setup: PGlite→Postgres promotion (all tables, UUIDs, versions, cursors, merges, idempotency, resume, no overwrite, dry run, conflict refusal, local directory unchanged — against real PostgreSQL when `TEST_DATABASE_URL` is set), PGlite/Postgres selection, CA-from-secret TLS, the cross-process sync lease, due-only scheduling, atomic SAM budgets with category journaling and reserve, the SAM priority order, targeted-search planning/budgeting (previews never contact SAM), focused bulk ingestion, capability terms, new change events without duplicates, and user data surviving refreshes.
 
 ---
 
@@ -343,8 +380,8 @@ The suite (in-memory Postgres via PGlite + recorded real API fixtures) covers: S
 | No recompete signals | Add NAICS codes to the company profile, then sync USAspending. |
 | Grants never appear | Turn on *Include grants* in Company information. |
 | SUBNet or forecast source **Degraded/Error** | The public page/listing likely changed. Other sources keep working; check *Sources → History* for the logged error. |
-| Supabase TLS error (“self-signed certificate in chain”) | Set `DATABASE_SSL_CA_FILE` to Supabase's CA cert. |
-| “A sync is already running” | Only one sync runs at a time; wait for it (top-bar spinner) or check *Sources → History*. |
+| Supabase TLS error (“self-signed certificate in chain”) | Supply Supabase's CA (`DATABASE_SSL_CA_FILE`, or `DATABASE_SSL_CA_BASE64` on hosts). More in the [deployment guide](docs/DEPLOY_SUPABASE_RENDER.md#troubleshooting). |
+| “A sync is already running” | Only one process syncs at a time (web app, GitHub Actions, CLI share a lease); wait for it or check *Sources → History*. |
 | Documents show **skipped** | SAM attachments need `SAM_DOWNLOAD_DOCUMENTS=true` (uses the SAM budget); SBA attachments are disallowed by robots.txt — open them from the link. |
 | Scores look flat | Confirm capabilities (with strengths), add NAICS and past performance; scoring re-runs automatically after profile saves. |
 | Reset local data | Stop the server and delete `data/pglite` (export a backup first). |
@@ -357,7 +394,8 @@ See [`docs/SOURCE_COVERAGE.md`](docs/SOURCE_COVERAGE.md) for the per-source **ra
 
 ## Known limitations
 
-- **SAM rate limits**: with a 10-request/day key, the live API alone cannot cover all notices; rely on the bulk extract for breadth.
+- **SAM rate limits**: with a 10-request/day key, the live API alone cannot cover all notices; GovCheck spends it on tracked and high-priority opportunities and relies on the free bulk extract for breadth.
+- **Free hosting**: Render Free sleeps after ~15 minutes idle (first visit waits up to a minute); Supabase Free is 500 MB — keep `SAM_BULK_INGEST_MODE=focused` and watch *Database & storage*. GitHub pauses scheduled workflows after 60 days without repository activity.
 - **GSA forecast contacts/details** require login.gov and are not collected.
 - **SBA SUBNet** has no API; the reader depends on page structure and is marked Degraded if it changes. SBA attachments are not downloaded (robots.txt).
 - **OCR** for scanned PDFs is not enabled (flagged as `ocr_needed`).

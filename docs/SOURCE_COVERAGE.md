@@ -73,7 +73,7 @@ Recompete signals, incumbent candidates, comparable-award value estimates, requi
 
 | Gap | Why | Path forward |
 |---|---|---|
-| SAM notices beyond 10 requests/day | Personal non-federal keys are capped | Request a role / system account (1,000/day); rely on the free bulk extract for breadth (weekly reconcile by default — consider daily) |
+| SAM notices beyond 10 requests/day | Personal non-federal keys are capped | Request a role / system account (1,000/day); rely on the free bulk extract for breadth (daily reconcile, focused ingestion) and the SAM priority model |
 | SAM attachments | Each download costs a SAM request | `SAM_DOWNLOAD_DOCUMENTS=true` with a higher-quota key; prioritize high-fit profiles (already ordered by fit) |
 | GSA forecast contacts/details | login.gov wall | Do not automate; contact the listed agency or use APFS-style agency feeds |
 | GSA listing pagination defect | Upstream bug | Measured and reported; consider reporting to GSA; agency-direct forecasts (APFS) reduce dependence |
@@ -108,7 +108,7 @@ Recompete signals, incumbent candidates, comparable-award value estimates, requi
 | Source | Cadence | Rationale |
 |---|---|---|
 | SAM Opportunities API | every 6 h (budget-aware, 3-day overlap) | Freshness for deadlines/amendments |
-| SAM bulk extract | **daily** reconcile if bandwidth allows (default weekly) | Free breadth; catches everything the 10-request budget misses |
+| SAM bulk extract | **daily** reconcile (default since schema 004) | Free breadth; catches everything the 10-request budget misses |
 | SAM Contract Awards | daily | Award postings / incumbent facts |
 | DHS APFS | daily | Small single request; forecasts update weekly-ish |
 | GSA forecasts | daily incremental + weekly full reconcile | Measures coverage each reconcile |

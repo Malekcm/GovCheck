@@ -10,7 +10,8 @@ import { FEATURE_GROUP_LABELS, featureGroup } from '../scoring/preference';
 import { scoreMany } from '../scoring/run';
 import { getLastVisit, includeGrantsDefault } from './meta';
 import { retrainState, scheduleRetrain } from './opportunities';
-import { buildOpportunityQuery, DECISION_JOIN, LIST_COLUMNS, OpportunityFilters } from './query';
+import { buildOpportunityQuery, DECISION_JOIN, LIST_COLUMNS, OpportunityFilters, TRACKED_SQL } from './query';
+import { MEANINGFUL_EVENT_TYPES } from '../../shared/domain';
 
 export function registerIntelRoutes(app: Hono, deps: AppDeps) {
   const { db } = deps;
@@ -72,20 +73,70 @@ export function registerIntelRoutes(app: Hono, deps: AppDeps) {
 
   app.get('/api/changes', async (c) => {
     const f = z
-      .object({ type: z.string().optional(), days: z.coerce.number().int().min(1).max(3650).default(14), minFit: z.coerce.number().optional(), page: z.coerce.number().int().min(1).default(1) })
+      .object({
+        type: z.string().optional(),
+        days: z.coerce.number().int().min(1).max(3650).default(14),
+        /** ISO timestamp; overrides `days` ("what changed since yesterday 9am"). */
+        since: z.string().datetime({ offset: true }).optional(),
+        minFit: z.coerce.number().optional(),
+        /** tracked = opportunities marked Pursue / Interested / Watch or in the capture pipeline. */
+        scope: z.enum(['all', 'tracked']).default('all'),
+        /** Only meaningful procurement changes (excludes new-profile / source-link bookkeeping). */
+        meaningful: z.enum(['true', 'false']).optional(),
+        page: z.coerce.number().int().min(1).default(1),
+      })
       .parse(c.req.query());
     // Base window (used for the per-type counts) and the list filter (base + type).
-    const base = `e.detected_at >= now() - ($1::int * interval '1 day') AND o.merged_into_id IS NULL AND e.event_type <> 'LIFECYCLE' AND COALESCE(o.fit_score,0) >= $2`;
-    const baseParams: unknown[] = [f.days, f.minFit ?? 0];
-    const listWhere = f.type ? `${base} AND e.event_type = ANY($3::text[])` : base;
-    const listParams = f.type ? [...baseParams, f.type.split(',')] : baseParams;
+    const params: unknown[] = [f.since ?? null, f.days, f.minFit ?? 0];
+    let base = `e.detected_at >= COALESCE($1::timestamptz, now() - ($2::int * interval '1 day')) AND o.merged_into_id IS NULL AND e.event_type <> 'LIFECYCLE' AND COALESCE(o.fit_score,0) >= $3`;
+    if (f.scope === 'tracked') base += ` AND ${TRACKED_SQL}`;
+    if (f.meaningful === 'true') {
+      params.push(MEANINGFUL_EVENT_TYPES);
+      base += ` AND e.event_type = ANY($${params.length}::text[])`;
+    }
+    const listParams = f.type ? [...params, f.type.split(',')] : params;
+    const listWhere = f.type ? `${base} AND e.event_type = ANY($${listParams.length}::text[])` : base;
     const rows = await db.query(
-      `SELECT e.*, o.title AS opportunity_title, o.stage, o.fit_score, o.preference_score, o.is_signal, sc.name AS connector_name FROM opportunity_events e JOIN opportunities o ON o.id = e.opportunity_id
+      `SELECT e.*, o.title AS opportunity_title, o.stage, o.fit_score, o.preference_score, o.is_signal, o.solicitation_number, sc.name AS connector_name,
+         (SELECT d.decision FROM user_opportunity_decisions d WHERE d.opportunity_id = o.id AND d.is_current LIMIT 1) AS decision
+       FROM opportunity_events e JOIN opportunities o ON o.id = e.opportunity_id
        LEFT JOIN source_connectors sc ON sc.id = e.connector_id WHERE ${listWhere} ORDER BY e.detected_at DESC LIMIT 100 OFFSET ${(f.page - 1) * 100}`,
       listParams,
     );
-    const counts = await db.query(`SELECT e.event_type, count(*)::int AS n FROM opportunity_events e JOIN opportunities o ON o.id = e.opportunity_id WHERE ${base} GROUP BY 1 ORDER BY 2 DESC`, baseParams);
-    return c.json({ events: rows, counts });
+    const counts = await db.query(`SELECT e.event_type, count(*)::int AS n FROM opportunity_events e JOIN opportunities o ON o.id = e.opportunity_id WHERE ${base} GROUP BY 1 ORDER BY 2 DESC`, params);
+    const summary = await db.one(
+      `SELECT count(DISTINCT e.opportunity_id)::int AS opportunities, count(*)::int AS events FROM opportunity_events e JOIN opportunities o ON o.id = e.opportunity_id WHERE ${base}`,
+      params,
+    );
+    return c.json({ events: rows, counts, summary });
+  });
+
+  /** Changes to one opportunity since a point in time — or since the current decision was made. */
+  app.get('/api/opportunities/:id/changes', async (c) => {
+    const id = c.req.param('id');
+    const since = c.req.query('since') ?? 'decision';
+    let from: string;
+    let basis: string;
+    if (since === 'decision') {
+      const d = await db.one<{ decision: string; decided_at: string }>(
+        `SELECT decision, decided_at FROM user_opportunity_decisions WHERE opportunity_id::text = $1 AND is_current ORDER BY decided_at DESC LIMIT 1`,
+        [id],
+      );
+      if (!d) return c.json({ since: null, basis: 'No decision recorded for this opportunity yet.', events: [] });
+      from = new Date(d.decided_at).toISOString();
+      basis = `since you marked it “${d.decision}”`;
+    } else {
+      const parsed = z.string().datetime({ offset: true }).safeParse(since);
+      if (!parsed.success) return c.json({ error: 'since must be "decision" or an ISO timestamp' }, 400);
+      from = parsed.data;
+      basis = `since ${from}`;
+    }
+    const events = await db.query(
+      `SELECT e.*, sc.name AS connector_name FROM opportunity_events e LEFT JOIN source_connectors sc ON sc.id = e.connector_id
+       WHERE e.opportunity_id::text = $1 AND e.detected_at >= $2::timestamptz AND e.event_type <> 'LIFECYCLE' ORDER BY e.detected_at DESC LIMIT 500`,
+      [id, from],
+    );
+    return c.json({ since: from, basis, events });
   });
 
   // ---------------------------------------------------------------------------

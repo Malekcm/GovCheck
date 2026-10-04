@@ -263,7 +263,7 @@ export function OpportunityDetailPage() {
             </div>
           </div>
           <div className="row no-print">
-            <button className="btn" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
+            <button className="btn" onClick={() => refresh.mutate()} disabled={refresh.isPending} title="Re-fetches this opportunity from its sources now. SAM.gov sources use 1–3 of today’s limited SAM requests (from the reserve kept for manual use).">
               {refresh.isPending ? <span className="spinner" /> : <RefreshCw size={14} />} Refresh this opportunity
             </button>
             <button className="btn" onClick={() => analyze.mutate(false)} disabled={analyze.isPending || !d.aiAvailable} title={d.aiAvailable ? 'Extract structured requirements with Claude (cached by content hash)' : 'Set ANTHROPIC_API_KEY to enable'}>
@@ -1053,43 +1053,7 @@ export function OpportunityDetailPage() {
           </Card>
 
           {/* Changes */}
-          <Card id="changes" title="Change history">
-            {changes.length ? (
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Detected</th>
-                    <th>Change</th>
-                    <th>Source</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {changes.map((e: any) => (
-                    <tr key={e.id}>
-                      <td className="small nowrap">{date(e.detected_at, true)}</td>
-                      <td>
-                        <span className={`badge ${['CANCELLED', 'DEADLINE_CHANGED', 'SCOPE_CHANGED', 'SET_ASIDE_CHANGED'].includes(e.event_type) ? 'warn' : 'neutral'}`}>{EVENT_LABELS[e.event_type] ?? e.event_type}</span> {e.title}
-                        {Array.isArray(e.detail?.addedSentences) && e.detail.addedSentences.length > 0 && (
-                          <details>
-                            <summary className="small muted">Show added text</summary>
-                            {e.detail.addedSentences.map((t: string, i: number) => (
-                              <div key={i} className="diff-add">
-                                {t}
-                              </div>
-                            ))}
-                            {e.detail.removedCount > 0 && <div className="small muted">{e.detail.removedCount} sentence(s) removed.</div>}
-                          </details>
-                        )}
-                      </td>
-                      <td className="small muted">{e.connector_name ?? ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <span className="muted">No changes since this profile was first seen ({relative(o.first_seen_at)}).</span>
-            )}
-          </Card>
+          <ChangeHistory opportunityId={o.id} changes={changes} firstSeen={o.first_seen_at} hasDecision={!!d.currentDecision} />
 
           {/* Provenance */}
           <Card id="sources" title="Sources / provenance">
@@ -1420,4 +1384,75 @@ function CaptureCard({ id, capture, deadline }: { id: string; capture: any | nul
       {capture?.updated_at && <div className="small muted">Last updated {relative(capture.updated_at)}. Refreshes never modify the capture plan.</div>}
     </Card>
   );
+}
+
+/** Change history with a "since our decision" view ("What changed since we decided to pursue this?"). */
+function ChangeHistory({ opportunityId, changes, firstSeen, hasDecision }: { opportunityId: string; changes: any[]; firstSeen: string; hasDecision: boolean }) {
+  const [sinceDecision, setSinceDecision] = useState(false);
+  const since = useQuery({ queryKey: ['opp-changes-since', opportunityId], queryFn: () => api.get<any>(`/api/opportunities/${opportunityId}/changes?since=decision`), enabled: sinceDecision });
+  const rows: any[] = sinceDecision ? since.data?.events ?? [] : changes;
+  return (
+    <Card
+      id="changes"
+      title="Change history"
+      actions={
+        hasDecision ? (
+          <label className="row small nowrap">
+            <input type="checkbox" checked={sinceDecision} onChange={(e) => setSinceDecision(e.target.checked)} /> Only since our decision
+          </label>
+        ) : null
+      }
+    >
+      {sinceDecision && since.data?.basis && <p className="small muted" style={{ marginTop: 0 }}>Changes detected {since.data.basis}{since.data.since ? ` (${date(since.data.since, true)})` : ''}.</p>}
+      {rows.length ? (
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Detected</th>
+              <th>Change</th>
+              <th>Was → now</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((e: any) => (
+              <tr key={e.id}>
+                <td className="small nowrap">{date(e.detected_at, true)}</td>
+                <td>
+                  <span className={`badge ${['CANCELLED', 'DEADLINE_CHANGED', 'SCOPE_CHANGED', 'SET_ASIDE_CHANGED', 'NOTICE_TYPE_CHANGED', 'REOPENED', 'AMENDMENT'].includes(e.event_type) ? 'warn' : 'neutral'}`}>{EVENT_LABELS[e.event_type] ?? e.event_type}</span> {e.title}
+                  {Array.isArray(e.detail?.addedSentences) && e.detail.addedSentences.length > 0 && (
+                    <details>
+                      <summary className="small muted">Show added text</summary>
+                      {e.detail.addedSentences.map((t: string, i: number) => (
+                        <div key={i} className="diff-add">
+                          {t}
+                        </div>
+                      ))}
+                      {e.detail.removedCount > 0 && <div className="small muted">{e.detail.removedCount} sentence(s) removed.</div>}
+                    </details>
+                  )}
+                </td>
+                <td className="small muted" style={{ maxWidth: 260 }}>
+                  {e.field && (e.old_value !== null || e.new_value !== null) ? `${fmtVal(e.old_value)} → ${fmtVal(e.new_value)}` : ''}
+                </td>
+                <td className="small muted">{e.connector_name ?? ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : sinceDecision ? (
+        <span className="muted">{since.isLoading ? 'Loading…' : 'Nothing has changed since your decision.'}</span>
+      ) : (
+        <span className="muted">No changes since this profile was first seen ({relative(firstSeen)}).</span>
+      )}
+    </Card>
+  );
+}
+
+function fmtVal(v: unknown): string {
+  if (v === null || v === undefined || v === '') return 'none';
+  if (Array.isArray(v)) return v.map((x) => fmtVal(x)).join('–');
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return v.slice(0, 10);
+  if (typeof v === 'object') return JSON.stringify(v).slice(0, 60);
+  return String(v).slice(0, 60);
 }

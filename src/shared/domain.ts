@@ -240,7 +240,34 @@ export const EVENT_LABELS: Record<string, string> = {
   SET_ASIDE_CHANGED: 'Set-aside changed',
   SOLICITATION_RELEASED: 'Solicitation released',
   QA_PUBLISHED: 'Q&A published',
+  REOPENED: 'Reopened',
+  NOTICE_TYPE_CHANGED: 'Notice type changed',
+  AGENCY_CHANGED: 'Agency / office changed',
+  AWARD_INFO_ADDED: 'Award information added',
 };
+
+/** Event types that represent a meaningful change to a procurement (used by "what changed" views). */
+export const MEANINGFUL_EVENT_TYPES = [
+  'DEADLINE_CHANGED',
+  'STATUS_CHANGED',
+  'STAGE_CHANGED',
+  'NOTICE_TYPE_CHANGED',
+  'SET_ASIDE_CHANGED',
+  'VALUE_CHANGED',
+  'FIELD_CHANGED',
+  'SCOPE_CHANGED',
+  'AMENDMENT',
+  'NEW_DOCUMENT',
+  'DOCUMENT_UPDATED',
+  'CONTACT_CHANGED',
+  'AGENCY_CHANGED',
+  'DATES_CHANGED',
+  'AWARD_POSTED',
+  'AWARD_INFO_ADDED',
+  'CANCELLED',
+  'REOPENED',
+  'SOLICITATION_RELEASED',
+];
 
 /** Score dimensions shown side by side. Fit is never blended with the others. */
 export const SCORE_DIMENSION_LABELS: Record<'fit' | 'eligibility' | 'attractiveness' | 'confidence' | 'priority', string> = {

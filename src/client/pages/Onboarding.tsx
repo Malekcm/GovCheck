@@ -81,11 +81,17 @@ export function OnboardingPage() {
             <p>
               The first sync pulls: SAM.gov notices (if the API key is set; personal keys allow 10 requests/day so the window resumes daily), GSA procurement forecasts, SBA SUBNet subcontracts, Grants.gov (if enabled), and USAspending contracts in your NAICS codes that expire within 18 months — creating recompete intelligence signals. Everything is then consolidated, enriched and scored.
             </p>
-            <p className="small muted">The SAM.gov bulk extract (~220 MB) runs separately as a weekly reconciliation; start it from <Link to="/sources">Sources & sync</Link> if you want broad historical coverage now.</p>
+            <p className="small muted">The free SAM.gov bulk extract (~220 MB) runs separately as a daily reconciliation; start it from <Link to="/sources">Sources & sync</Link> if you want broad coverage now.</p>
             <div>
-              <button className="btn primary" onClick={() => sync.mutate()} disabled={sync.isPending}>
-                Finish setup & run initial sync
-              </button>
+              {done ? (
+                <div className="callout small">
+                  Setup is already complete and GovCheck’s data is shared by the whole team. Sources are checked automatically on a schedule — there is no need to run an initial sync again. See <Link to="/sources">Sources & sync</Link> for status.
+                </div>
+              ) : (
+                <button className="btn primary" onClick={() => sync.mutate()} disabled={sync.isPending}>
+                  Finish setup & run initial sync
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -1,6 +1,9 @@
 import { Readable, Transform } from 'node:stream';
 import { parse } from 'csv-parse';
 import { addDays, parseDate } from '../../lib/dates';
+import { normalizeIdentifier } from '../../lib/ids';
+import { htmlToText } from '../../lib/text';
+import { matchedTerms, termMatcher } from '../../pipeline/searchTerms';
 import type { ConnectorContext, FetchPage, RawRecord, SourceAdapter } from '../types';
 import { samCsvRowToNotice, samNoticeToNormalized } from './common';
 
@@ -25,7 +28,13 @@ function windows1252Decoder(): Transform {
 export type RowFilter = (row: Record<string, string>) => boolean;
 
 /** Stream a SAM CSV (from a web stream or node stream) into pages of RawRecords. */
-export async function* streamSamCsv(input: NodeJS.ReadableStream, filter: RowFilter, ctx: Pick<ConnectorContext, 'shouldStop'>, sourceLabel: string): AsyncGenerator<FetchPage> {
+export async function* streamSamCsv(
+  input: NodeJS.ReadableStream,
+  filter: RowFilter,
+  ctx: Pick<ConnectorContext, 'shouldStop'>,
+  sourceLabel: string,
+  extraNote?: () => string,
+): AsyncGenerator<FetchPage> {
   const parser = (input as Readable).pipe(windows1252Decoder()).pipe(
     parse({ columns: true, bom: true, relax_quotes: true, relax_column_count: true, skip_empty_lines: true, trim: false }),
   );
@@ -40,12 +49,16 @@ export async function* streamSamCsv(input: NodeJS.ReadableStream, filter: RowFil
     matched++;
     batch.push({ sourceRecordId: row.NoticeId, kind: 'opportunity', raw: row, retrievedAt, sourceUrl: row.Link || undefined });
     if (batch.length >= BATCH) {
-      yield { records: batch, note: `${sourceLabel}: scanned ${scanned.toLocaleString()} rows, matched ${matched.toLocaleString()}` };
+      yield { records: batch, note: `${sourceLabel}: scanned ${scanned.toLocaleString()} rows, kept ${matched.toLocaleString()}${extraNote ? ` ${extraNote()}` : ''}` };
       batch = [];
     }
   }
   (parser as unknown as Readable).destroy?.();
-  yield { records: batch, note: `${sourceLabel}: scanned ${scanned.toLocaleString()} rows, matched ${matched.toLocaleString()}`, cursor: { lastFileScannedAt: new Date().toISOString(), lastScanRows: scanned, lastScanMatched: matched } };
+  yield {
+    records: batch,
+    note: `${sourceLabel}: scanned ${scanned.toLocaleString()} rows, kept ${matched.toLocaleString()}${extraNote ? ` ${extraNote()}` : ''}`,
+    cursor: { lastFileScannedAt: new Date().toISOString(), lastScanRows: scanned, lastScanMatched: matched },
+  };
 }
 
 export function recentOrActiveFilter(lookbackDays: number, now = new Date()): RowFilter {
@@ -66,6 +79,105 @@ export function naicsPrefixFilter(prefixes: string[]): RowFilter {
   return (row) => !list.length || list.some((p) => (row.NaicsCode ?? '').startsWith(p));
 }
 
+// ---------------------------------------------------------------------------
+// Focused ingestion
+// ---------------------------------------------------------------------------
+/**
+ * Supabase Free has limited storage, so by default the bulk file is still scanned in full
+ * but only relevant rows are stored. A row is kept when ANY rule matches (documented in
+ * docs/DEPLOY_SUPABASE_RENDER.md):
+ *
+ *   tracked              notice ID already in GovCheck (continued change tracking — an
+ *                        opportunity is never dropped because the profile changed later)
+ *   tracked_solicitation solicitation number of an opportunity already in GovCheck
+ *                        (amendments re-posted under a new notice ID)
+ *   naics                NAICS matches a company NAICS code, its 4-digit industry group,
+ *                        or an allowed prefix (SAM_BULK_FOCUS_NAICS_PREFIXES / connector setting)
+ *   psc                  PSC starts with a company PSC code
+ *   title_keyword        title contains a capability / keyword discovery term
+ *   description_keywords description contains ≥ 2 distinct discovery terms
+ *   preferred_agency     a preferred agency posting in one of the company's NAICS sectors
+ *
+ * Keyword rules are skipped when the title contains a negative keyword. Set
+ * SAM_BULK_INGEST_MODE=full to keep every row in the lookback window instead.
+ */
+export interface BulkFocus {
+  naicsPrefixes: string[];
+  naicsSectors: string[];
+  psc: string[];
+  terms: RegExp | null;
+  negative: RegExp | null;
+  knownNoticeIds: Set<string>;
+  knownSolicitations: Set<string>;
+  preferredAgencies: string[];
+  minDescriptionHits: number;
+}
+
+export type FocusReason = 'tracked' | 'tracked_solicitation' | 'naics' | 'psc' | 'title_keyword' | 'description_keywords' | 'preferred_agency';
+
+export function isKnownRow(row: Record<string, string>, focus: Pick<BulkFocus, 'knownNoticeIds' | 'knownSolicitations'>): FocusReason | null {
+  if (row.NoticeId && focus.knownNoticeIds.has(row.NoticeId.trim().toUpperCase())) return 'tracked';
+  const sol = normalizeIdentifier('solicitation_number', row['Sol#']);
+  if (sol && focus.knownSolicitations.has(sol)) return 'tracked_solicitation';
+  return null;
+}
+
+/** Why a bulk row is relevant (or null when it is not). Pure — unit tested. */
+export function focusReason(row: Record<string, string>, focus: BulkFocus): FocusReason | null {
+  const known = isKnownRow(row, focus);
+  if (known) return known;
+  const naics = (row.NaicsCode ?? '').trim();
+  if (naics && focus.naicsPrefixes.some((p) => naics.startsWith(p))) return 'naics';
+  const psc = (row.ClassificationCode ?? '').trim().toUpperCase();
+  if (psc && focus.psc.some((p) => psc.startsWith(p.toUpperCase()))) return 'psc';
+  const title = row.Title ?? '';
+  const negative = focus.negative ? matchedTerms(focus.negative, title).length > 0 : false;
+  if (!negative && focus.terms) {
+    if (matchedTerms(focus.terms, title).length) return 'title_keyword';
+    const desc = row.Description ? htmlToText(row.Description.slice(0, 12_000)) : '';
+    if (matchedTerms(focus.terms, desc).length >= focus.minDescriptionHits) return 'description_keywords';
+  }
+  if (naics && focus.preferredAgencies.length && focus.naicsSectors.some((s) => naics.startsWith(s))) {
+    const agency = `${row['Department/Ind.Agency'] ?? ''} ${row['Sub-Tier'] ?? ''}`.toLowerCase();
+    if (focus.preferredAgencies.some((a) => a && agency.includes(a.toLowerCase()))) return 'preferred_agency';
+  }
+  return null;
+}
+
+/** Build the focus rules from the company profile and what GovCheck already tracks. */
+export async function loadBulkFocus(ctx: ConnectorContext): Promise<BulkFocus> {
+  const extra = [...((ctx.settings.naicsPrefixes as string[] | undefined) ?? []), ...ctx.config.samBulkFocusNaicsPrefixes];
+  const naicsPrefixes = [...new Set([...ctx.focus.naics, ...ctx.focus.naics.map((n) => n.slice(0, 4)), ...extra].map((p) => p.trim()).filter((p) => p.length >= 2))];
+  const knownNoticeIds = new Set<string>();
+  for (const r of await ctx.db.query<{ v: string }>(`SELECT source_record_id AS v FROM source_records WHERE connector_id IN ('sam_bulk','sam_opportunities')`)) knownNoticeIds.add(r.v.trim().toUpperCase());
+  for (const r of await ctx.db.query<{ v: string }>(`SELECT normalized_value AS v FROM opportunity_identifiers WHERE id_type = 'notice_id'`)) knownNoticeIds.add(r.v);
+  const knownSolicitations = new Set((await ctx.db.query<{ v: string }>(`SELECT DISTINCT normalized_value AS v FROM opportunity_identifiers WHERE id_type = 'solicitation_number'`)).map((r) => r.v));
+  return {
+    naicsPrefixes,
+    naicsSectors: [...new Set(ctx.focus.naics.map((n) => n.slice(0, 2)))],
+    psc: ctx.focus.psc.filter(Boolean),
+    terms: termMatcher(ctx.focus.terms ?? []),
+    negative: termMatcher(ctx.focus.negativeKeywords ?? []),
+    knownNoticeIds,
+    knownSolicitations,
+    preferredAgencies: ctx.focus.preferredAgencies ?? [],
+    minDescriptionHits: Number(ctx.settings.minDescriptionHits ?? 2),
+  };
+}
+
+function reasonCounter() {
+  const counts: Record<string, number> = {};
+  return {
+    count(reason: string) {
+      counts[reason] = (counts[reason] ?? 0) + 1;
+    },
+    note: () => {
+      const parts = Object.entries(counts).map(([k, v]) => `${k} ${v.toLocaleString()}`);
+      return parts.length ? `(${parts.join(', ')})` : '';
+    },
+  };
+}
+
 async function openStream(ctx: ConnectorContext, url: string): Promise<NodeJS.ReadableStream> {
   const res = await ctx.http.request<ReadableStream<Uint8Array>>({ url, responseType: 'stream', timeoutMs: 60 * 60_000, retries: 2, hostDelayMs: 0 });
   if (!res.data) throw new Error('Empty response body from SAM data services');
@@ -82,13 +194,17 @@ export const samBulkAdapter: SourceAdapter = {
     authRequired: false,
     priority: 15,
     defaultScheduleMinutes: null,
-    reconcileScheduleMinutes: 7 * 24 * 60,
+    // Daily: the bulk extract is free (no API key, no request budget) and is the main way
+    // GovCheck notices amendments and changes to SAM notices it already tracks.
+    reconcileScheduleMinutes: 24 * 60,
     description: 'Official public Contract Opportunities extract (~220 MB daily CSV, plus archived fiscal-year files). Reconciles the live API so records and versions are never lost.',
     supportsReconcile: true,
     supportsIdentifierFetch: [],
     notes:
-      'No API key needed and no daily request limit. Reconciliation streams the full file and keeps notices posted within SAM_BULK_LOOKBACK_DAYS or still open. ' +
-      'Unchanged notices are skipped by content hash. Archived fiscal-year files can be imported on demand (filtered to your NAICS prefixes) from the Sources page.',
+      'No API key needed and no daily request limit. Reconciliation streams the full file (daily by default). In focused mode (SAM_BULK_INGEST_MODE=focused, the default) ' +
+      'only notices relevant to your profile (NAICS, PSC, capability keywords, preferred agencies) or already tracked by GovCheck are stored, keeping the database small; ' +
+      'full mode keeps every notice posted within SAM_BULK_LOOKBACK_DAYS or still open. Unchanged notices are skipped by content hash. ' +
+      'Archived fiscal-year files can be imported on demand (profile-filtered) from the Sources page.',
   },
   parserVersion: 'sam-bulk-3',
 
@@ -120,19 +236,52 @@ export const samBulkAdapter: SourceAdapter = {
 
   async *fetchReconcile(ctx): AsyncGenerator<FetchPage> {
     const fy = ctx.params.fiscalYear ? Number(ctx.params.fiscalYear) : null;
+    const mode = (ctx.settings.ingestMode as string | undefined) ?? ctx.config.samBulkIngestMode;
     if (fy) {
-      const prefixes = (ctx.params.naicsPrefixes as string[] | undefined) ?? ctx.focus.naics.map((n) => n.slice(0, 4));
-      if (!prefixes.length) throw new Error('Archived imports are filtered by NAICS. Add NAICS codes to the company profile or pass naicsPrefixes.');
-      const stream = await openStream(ctx, samArchiveCsvUrl(fy));
-      yield* streamSamCsv(stream, naicsPrefixFilter([...new Set(prefixes)]), ctx, `FY${fy} archive`);
+      const explicit = ctx.params.naicsPrefixes as string[] | undefined;
+      const stream = () => openStream(ctx, samArchiveCsvUrl(fy));
+      if (explicit?.length) {
+        yield* streamSamCsv(await stream(), naicsPrefixFilter([...new Set(explicit)]), ctx, `FY${fy} archive`);
+        return;
+      }
+      // Profile-aware: NAICS industry groups, PSC, capability terms, or already tracked.
+      const focus = await loadBulkFocus(ctx);
+      if (!focus.naicsPrefixes.length && !focus.terms && !focus.psc.length)
+        throw new Error('Archived imports are filtered by your profile. Add NAICS codes or capabilities to the company profile, or pass naicsPrefixes.');
+      const counter = reasonCounter();
+      const filter: RowFilter = (row) => {
+        const why = focusReason(row, focus);
+        if (why) counter.count(why);
+        return !!why;
+      };
+      yield* streamSamCsv(await stream(), filter, ctx, `FY${fy} archive`, counter.note);
       return;
     }
     const lookback = Number(ctx.settings.lookbackDays ?? ctx.config.samBulkLookbackDays);
-    const prefixes = (ctx.settings.naicsPrefixes as string[] | undefined) ?? [];
     const recent = recentOrActiveFilter(lookback);
-    const naics = naicsPrefixFilter(prefixes);
+    if (mode === 'full') {
+      const prefixes = (ctx.settings.naicsPrefixes as string[] | undefined) ?? [];
+      const naics = naicsPrefixFilter(prefixes);
+      const stream = await openStream(ctx, SAM_FULL_CSV_URL);
+      yield* streamSamCsv(stream, (r) => recent(r) && naics(r), ctx, 'Full extract (full mode)');
+      return;
+    }
+    const focus = await loadBulkFocus(ctx);
+    const counter = reasonCounter();
+    const filter: RowFilter = (row) => {
+      // Already-tracked notices are kept even when old, so closings and archive changes are seen.
+      const known = isKnownRow(row, focus);
+      if (known) {
+        counter.count(known);
+        return true;
+      }
+      if (!recent(row)) return false;
+      const why = focusReason(row, focus);
+      if (why) counter.count(why);
+      return !!why;
+    };
     const stream = await openStream(ctx, SAM_FULL_CSV_URL);
-    yield* streamSamCsv(stream, (r) => recent(r) && naics(r), ctx, 'Full extract');
+    yield* streamSamCsv(stream, filter, ctx, 'Full extract (focused mode)', counter.note);
   },
 
   normalize(record) {

@@ -3,9 +3,27 @@ on:
   push:
     branches: [main]
   pull_request:
+permissions:
+  contents: read
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      # Real PostgreSQL so the Supabase/Postgres code paths (promotion, migrations) are tested too.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: govcheck_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/govcheck_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
