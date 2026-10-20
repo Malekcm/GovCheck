@@ -26,6 +26,7 @@ export class G2xClient {
       while(true){const chunk=await reader.read();if(chunk.done)break;size+=chunk.value.byteLength;if(size>2_000_000){await reader.cancel();throw new HttpProblem(503,'G2X response exceeded the interactive size limit.');}text+=decoder.decode(chunk.value,{stream:true});}
       text+=decoder.decode();
     }
+    try {
     if (res.headers.get('content-type')?.includes('text/event-stream')) {
       const events = text.split(/\r?\n\r?\n/).flatMap(event => {
         const data=event.split(/\r?\n/).filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trimStart()).join('\n');
@@ -34,6 +35,10 @@ export class G2xClient {
       return events.find(e=>e.id!=null) ?? {};
     }
     return text ? JSON.parse(text) : {};
+    } catch {
+      // JSON parser exceptions can include response fragments containing OAuth credentials.
+      throw new HttpProblem(503,'G2X returned invalid protocol data. Retry or reconnect your account.');
+    }
   }
   async discover() {
     const resource = await this.http('https://mcp.g2x.com/.well-known/oauth-protected-resource/mcp/research');
