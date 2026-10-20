@@ -8,7 +8,7 @@ import { OpportunityTable } from '../components/OpportunityTable';
 import { Card, Empty, ErrorBox, Loading, ProvenanceLegend, toast } from '../components/ui';
 
 const FILTER_KEYS = [
-  'q', 'minFit', 'minPref', 'eligibility', 'decision', 'stage', 'opportunityClass', 'source', 'agency', 'subagency', 'office', 'naics', 'psc', 'setAside', 'vehicle',
+  'assignment', 'assignedUser', 'assignmentDue', 'q', 'minFit', 'minPref', 'eligibility', 'decision', 'stage', 'opportunityClass', 'source', 'agency', 'subagency', 'office', 'naics', 'psc', 'setAside', 'vehicle',
   'valueMin', 'valueMax', 'postedFrom', 'postedTo', 'deadlineFrom', 'deadlineTo', 'performanceFrom', 'performanceTo', 'dueWithinDays', 'changedWithinDays', 'state',
   'recompete', 'hasIncumbent', 'hasDocuments', 'newSinceVisit', 'openOnly', 'includeGrants', 'agencyId', 'officeId', 'vendorId', 'maxFit',
   'minAttractiveness', 'minConfidence', 'expiringWithinMonths', 'incumbent', 'noticeType', 'changeType', 'captureStage', 'owner', 'tag', 'status',
@@ -58,6 +58,8 @@ function MultiSelect({ label, options, value, onChange }: { label: string; optio
 
 export function OpportunitiesPage() {
   const [params, setParams] = useSearchParams();
+  const me=useQuery({queryKey:['me'],queryFn:()=>api.get<any>('/api/auth/me')});
+  const team=useQuery({queryKey:['team-members'],queryFn:()=>api.get<any[]>('/api/team/members'),enabled:!!me.data?.teamAuth});
   const [showFilters, setShowFilters] = useState(false);
   const queueSlug = params.get('queue') ?? 'all';
   const queues = useQuery({ queryKey: ['queues'], queryFn: () => api.get<any[]>('/api/queues') });
@@ -85,6 +87,8 @@ export function OpportunitiesPage() {
 
   const set = (k: string, v: string | string[] | null | undefined) => {
     const next = new URLSearchParams(params);
+    if (k === 'assignedUser') next.delete('assignment');
+    if (k === 'assignment') next.delete('assignedUser');
     const val = Array.isArray(v) ? v.join(',') : v;
     if (val === undefined || val === null || val === '') next.delete(k);
     else next.set(k, val);
@@ -169,7 +173,8 @@ export function OpportunitiesPage() {
           </>
         }
       >
-        {showFilters && (
+        {me.data?.teamAuth && <div className="row" style={{marginBottom:12}}><label className="field">Assignments<select value={filters.assignment??'all'} onChange={e=>set('assignment',e.target.value)}><option value="all">All team opportunities</option><option value="mine">My opportunities</option><option value="collaborations">My collaborations</option><option value="unassigned">Unassigned</option></select></label><label className="field">Assigned to<select value={filters.assignedUser??''} onChange={e=>{set('assignedUser',e.target.value);}}><option value="">Any member</option>{team.data?.map(m=><option key={m.user_id} value={m.user_id}>{m.name} ({m.email})</option>)}</select></label><label className="field">Assignment due by<input type="date" value={filters.assignmentDue??''} onChange={e=>set('assignmentDue',e.target.value)}/></label></div>}
+      {showFilters && (
           <div className="filters">
             <MultiSelect label="Stage" options={STAGES.map((s) => [s, STAGE_LABELS[s]])} value={arr('stage')} onChange={(v) => set('stage', v)} />
             <MultiSelect label="Class" options={[['prime', 'Prime'], ['subcontract', 'Subcontract'], ['grant', 'Grant'], ['intelligence', 'Intelligence signal']]} value={arr('opportunityClass')} onChange={(v) => set('opportunityClass', v)} />

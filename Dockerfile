@@ -13,6 +13,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/migrations ./migrations
 COPY package.json ./
+COPY --from=build /app/research-skills ./research-skills
 # Embedded-database fallback location (mount a volume here if not using DATABASE_URL)
 VOLUME ["/app/data"]
 EXPOSE 8787

@@ -1,3 +1,4 @@
+import { mergeAssignments, undoAssignments } from '../team/merge';
 import type { Db } from '../db';
 import { json } from '../db';
 import { recomputeOpportunity } from './canonical';
@@ -17,6 +18,9 @@ const ID_TABLES: { table: string; guard?: string }[] = [
   { table: 'opportunity_requirements' },
   { table: 'opportunity_events', guard: 'NOT EXISTS (SELECT 1 FROM opportunity_events x WHERE x.opportunity_id = $1 AND x.dedupe_key = t.dedupe_key)' },
   { table: 'user_notes' },
+  { table: 'assignment_history' },
+  { table: 'research_runs' },
+  { table: 'research_signals' },
   { table: 'user_field_overrides', guard: 'NOT EXISTS (SELECT 1 FROM user_field_overrides x WHERE x.opportunity_id = $1 AND x.field = t.field)' },
   { table: 'opportunity_capture_history' },
 ];
@@ -35,14 +39,16 @@ const KEY_TABLES: [string, string[]][] = [
 const keyMatch = (keys: string[]) => (keys.length ? keys.map((k) => `x.${k} = t.${k}`).join(' AND ') : 'true');
 const keyReturning = (keys: string[]) => (keys.length ? keys.map((k) => `t.${k}`).join(', ') : 'true AS moved');
 
-export async function mergeOpportunities(db: Db, primaryId: string, secondaryId: string, priorities: Map<string, number>, note?: string): Promise<string> {
+export async function mergeOpportunities(db: Db, primaryId: string, secondaryId: string, priorities: Map<string, number>, note?: string, actorId?: string): Promise<string> {
   if (primaryId === secondaryId) throw new Error('Cannot merge a profile into itself.');
   return db.tx(async (tx) => {
+    await tx.query('SELECT id FROM opportunities WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE', [[primaryId,secondaryId]]);
     const sec = await tx.one<{ merged_into_id: string | null; title: string }>('SELECT merged_into_id, title FROM opportunities WHERE id = $1', [secondaryId]);
     const pri = await tx.one<{ merged_into_id: string | null; title: string }>('SELECT merged_into_id, title FROM opportunities WHERE id = $1', [primaryId]);
     if (!sec || !pri) throw new Error('Profile not found.');
     if (sec.merged_into_id || pri.merged_into_id) throw new Error('One of these profiles has already been merged.');
     const moved: Moved = {};
+    moved.team_assignments = await mergeAssignments(tx, primaryId, secondaryId);
 
     for (const { table, guard } of ID_TABLES) {
       const rows = await tx.query<{ id: string }>(
@@ -75,17 +81,21 @@ export async function mergeOpportunities(db: Db, primaryId: string, secondaryId:
       `INSERT INTO merge_decisions (action, primary_id, secondary_id, relationship_id, moved, note) VALUES ('merge',$1,$2,$3,$4::jsonb,$5) RETURNING id`,
       [primaryId, secondaryId, rel, json(moved), note ?? null],
     );
+    await tx.query('INSERT INTO assignment_history(opportunity_id,actor_id,request_id,changes) VALUES ($1,$2,gen_random_uuid(),$3::jsonb)', [primaryId,actorId??null,json({type:'merge_reconciliation',secondaryId,mergeId:row!.id,before:moved.team_assignments})]);
     await recordEvent(tx, primaryId, { type: 'MERGED', title: `Merged with “${sec.title}”`, dedupeKey: `merge:${row!.id}`, detail: { mergeId: row!.id, secondaryId } });
     await recomputeOpportunity(tx, primaryId, { priorities });
     return row!.id;
   });
 }
 
-export async function undoMerge(db: Db, mergeId: string, priorities: Map<string, number>): Promise<void> {
+export async function undoMerge(db: Db, mergeId: string, priorities: Map<string, number>, actorId?:string): Promise<void> {
   await db.tx(async (tx) => {
     const m = await tx.one<{ primary_id: string; secondary_id: string; moved: Moved; undone_at: string | null; relationship_id: string | null }>('SELECT * FROM merge_decisions WHERE id = $1 AND action = $2', [mergeId, 'merge']);
     if (!m) throw new Error('Merge not found.');
     if (m.undone_at) throw new Error('This merge was already undone.');
+    await tx.query('SELECT id FROM opportunities WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE', [[m.primary_id,m.secondary_id]]);
+    await undoAssignments(tx, m.moved.team_assignments ?? []);
+    await tx.query('UPDATE opportunities SET assignment_revision=assignment_revision+1 WHERE id=ANY($1::uuid[])', [[m.primary_id,m.secondary_id]]);
     for (const { table } of ID_TABLES) {
       const ids = (m.moved[table] ?? []) as string[];
       if (ids.length) await tx.query(`UPDATE ${table} SET opportunity_id = $1 WHERE id = ANY($2::uuid[])`, [m.secondary_id, ids]);
@@ -103,6 +113,7 @@ export async function undoMerge(db: Db, mergeId: string, priorities: Map<string,
     if (m.relationship_id) await tx.query(`UPDATE opportunity_relationships SET status = 'rejected', decided_at = now() WHERE id = $1`, [m.relationship_id]);
     await tx.query('UPDATE merge_decisions SET undone_at = now() WHERE id = $1', [mergeId]);
     await tx.query(`INSERT INTO merge_decisions (action, primary_id, secondary_id, note) VALUES ('undo_merge',$1,$2,$3)`, [m.primary_id, m.secondary_id, `Undo of merge ${mergeId}`]);
+    await tx.query('INSERT INTO assignment_history(opportunity_id,actor_id,request_id,changes) VALUES ($1,$2,gen_random_uuid(),$3::jsonb)', [m.primary_id,actorId??null,json({type:'undo_merge',mergeId})]);
     await recordEvent(tx, m.primary_id, { type: 'MERGED', title: 'Merge undone', dedupeKey: `unmerge:${mergeId}` });
     await recomputeOpportunity(tx, m.primary_id, { priorities });
     await recomputeOpportunity(tx, m.secondary_id, { priorities });

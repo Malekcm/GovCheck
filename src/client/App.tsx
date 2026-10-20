@@ -1,3 +1,7 @@
+import { ResearchNotifications } from './components/ResearchNotifications';
+import { TeamPage, WorkloadPage } from './pages/Team';
+import { IntegrationsPage } from './pages/Integrations';
+import { AcceptInvitation } from './pages/AcceptInvitation';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -63,6 +67,7 @@ function useSyncStatus() {
 }
 
 function Nav({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api.get<any>('/api/auth/me') });
   const queues = useQuery({ queryKey: ['queues'], queryFn: () => api.get<any[]>('/api/queues'), refetchInterval: 60_000 });
   const link = (to: string, icon: React.ReactNode, label: string, n?: number) => (
     <NavLink to={to} onClick={onNavigate} end={to === '/'}>
@@ -81,6 +86,7 @@ function Nav({ open, onNavigate }: { open: boolean; onNavigate: () => void }) {
         </div>
       </div>
       {link('/', <LayoutDashboard size={15} />, 'Dashboard')}
+      {me.data?.teamAuth && <>{link('/my-work', <Users size={15} />, 'My Work')}{link('/team-workload', <Users size={15} />, 'Team Workload')}{link('/integrations', <Database size={15} />, 'Integration settings')}{me.data.user?.role === 'admin' && link('/team', <UserCog size={15} />, 'Team Management')}</>}
       {link('/pipeline', <KanbanSquare size={15} />, 'Capture pipeline')}
       {link('/search', <Crosshair size={15} />, 'Targeted search')}
       <div className="nav-section">Work queues</div>
@@ -141,6 +147,8 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
       ) : (
         <DataFreshness />
       )}
+      <ResearchNotifications />
+      <button className="btn ghost" onClick={async () => { await api.post('/api/auth/logout'); window.location.reload(); }}>Log out</button>
     </header>
   );
 }
@@ -180,7 +188,7 @@ export function App() {
   const [unauth, setUnauth] = useState(false);
   const me = useQuery({
     queryKey: ['me'],
-    queryFn: () => api.get<{ authRequired: boolean; authenticated: boolean }>('/api/auth/me'),
+    queryFn: () => api.get<{ authRequired: boolean; authenticated: boolean; teamAuth?: boolean; user?: any }>('/api/auth/me'),
     // A waking server answers 503 (or not at all) for up to a minute: keep retrying quietly.
     retry: (count, err) => count < 60 && (!(err instanceof ApiError) || err.status >= 500),
     retryDelay: 3000,
@@ -194,9 +202,10 @@ export function App() {
     api.post('/api/session/visit').catch(() => undefined);
   }, []);
 
+  if (window.location.pathname === '/auth/accept') return <AcceptInvitation />;
   if (me.isLoading) return me.failureCount > 0 ? <WakingUp attempt={me.failureCount} /> : null;
   if (me.isError) return <WakingUp attempt={me.failureCount} />;
-  if ((me.data?.authRequired && !me.data.authenticated) || unauth) return <LoginPage onDone={() => window.location.reload()} />;
+  if ((me.data?.authRequired && !me.data.authenticated) || unauth) return <LoginPage teamAuth={!!me.data?.teamAuth} onDone={() => window.location.reload()} />;
 
   return (
     <div className="shell">
@@ -205,6 +214,10 @@ export function App() {
         <Topbar onMenu={() => setNavOpen((v) => !v)} />
         <main className="content">
           <Routes>
+            <Route path="/team" element={<TeamPage />} />
+            <Route path="/my-work" element={<WorkloadPage mine />} />
+            <Route path="/team-workload" element={<WorkloadPage />} />
+            <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/" element={<DashboardPage />} />
             <Route path="/opportunities" element={<OpportunitiesPage />} />
             <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />

@@ -1,3 +1,4 @@
+import { processResearchJob } from './research/workflow';
 import fs from 'node:fs';
 import path from 'node:path';
 import { serve } from '@hono/node-server';
@@ -42,9 +43,19 @@ async function main() {
 
   const stopScheduler = config.schedulerEnabled ? startScheduler(deps, log.child('scheduler')) : () => undefined;
 
+  let researchBusy = false;
+  const workResearch = async () => {
+    if (researchBusy || !config.teamAuthEnabled || !config.researchEnabled || !config.anthropicApiKey) return;
+    researchBusy = true;
+    try { await processResearchJob(deps); } catch { log.error('Research queue unavailable.'); }
+    finally { researchBusy = false; }
+  };
+  const researchTimer = setInterval(() => void workResearch(), 5000);
+  void workResearch();
   const shutdown = async (signal: string) => {
     log.info(`${signal} received, shutting down…`);
     stopScheduler();
+    clearInterval(researchTimer);
     server.close();
     await db.close().catch(() => undefined);
     process.exit(0);

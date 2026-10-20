@@ -1,3 +1,4 @@
+import { actor } from '../team/security';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import { HttpProblem, readJson, type AppDeps } from '../app';
@@ -196,7 +197,7 @@ export function registerIntelRoutes(app: Hono, deps: AppDeps) {
       .parse(await readJson(c));
     const priorities = await connectorPriorities(db);
     if (b.action === 'merge') {
-      const id = await mergeOpportunities(db, b.primaryId, b.secondaryId, priorities, b.note).catch((err) => {
+      const id = await mergeOpportunities(db, b.primaryId, b.secondaryId, priorities, b.note, actor(c)?.user_id).catch((err) => {
         throw new HttpProblem(409, err.message);
       });
       await scoreMany(db, [b.primaryId], 'merge');
@@ -208,7 +209,7 @@ export function registerIntelRoutes(app: Hono, deps: AppDeps) {
   });
 
   app.post('/api/merge/:id/undo', async (c) => {
-    await undoMerge(db, c.req.param('id'), await connectorPriorities(db)).catch((err) => {
+    await undoMerge(db, c.req.param('id'), await connectorPriorities(db), actor(c)?.user_id).catch((err) => {
       throw new HttpProblem(409, err.message);
     });
     scheduleRetrain(deps, 'undo merge');

@@ -1,0 +1,26 @@
+opportunity:
+  url: ""                       # SAM.gov, APFS, eBuy screenshot/file, agency notice, RFP
+  public_notice_id: ""
+  forecast_id: ""
+  title: ""
+  agency: ""
+  as_of_date: ""                # YYYY-MM-DD
+  known_vehicle: ""
+  naics: ""
+  anticipated_due_date: ""
+firm:
+  name: ""                       # Selected configured company
+  company_profile_file: ""       # Approved company-specific evidence, when provided
+research_preferences:
+  include_historical_recompete: true
+  include_company_crosswalk: true
+  include_contacts: true
+  include_incumbent_subs: true
+  include_current_solicitation_trace: true
+  deliverable: "docx"
+  slides: false
+constraints:
+  budget_for_bid: ""
+  client_relationship_notes: ""
+  incumbent_knowledge_notes: ""
+  sensitive_or_proprietary_inputs: ""
