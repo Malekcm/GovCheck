@@ -198,8 +198,10 @@ describe.skipIf(!PG_URL)('shared PostgreSQL: several processes at once', () => {
       const a = await createDb({ databaseUrl: PG_URL, pgliteDir: '', databasePoolMax: 4 });
       const b = await createDb({ databaseUrl: PG_URL, pgliteDir: '', databasePoolMax: 4 });
       const [ra, rb] = await Promise.all([runMigrations(a, testConfig().migrationsDir), runMigrations(b, testConfig().migrationsDir)]);
-      expect([...ra.applied, ...rb.applied].sort()).toEqual(['001_core', '002_row_level_security', '003_capture_scores_quality', '004_hosting_budget_search']);
-      expect((await admin.one<any>('SELECT count(*)::int AS n FROM schema_migrations')).n).toBe(4);
+      const { availableMigrations } = await import('../src/server/db/migrate');
+      const expectedMigrations = availableMigrations(testConfig().migrationsDir);
+      expect([...ra.applied, ...rb.applied].sort()).toEqual(expectedMigrations);
+      expect((await admin.one<any>('SELECT count(*)::int AS n FROM schema_migrations')).n).toBe(expectedMigrations.length);
 
       // "Web app" and "GitHub Actions" spending the same 5-request budget concurrently.
       const budgets = [new DbRequestBudget(a, { sam: 5 }), new DbRequestBudget(b, { sam: 5 })];

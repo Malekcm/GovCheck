@@ -120,3 +120,9 @@ Recompete signals, incumbent candidates, comparable-award value estimates, requi
 ## Storage estimate
 
 Per opportunity profile (all tables, typical): raw JSON 3–15 KB per source version, normalized + field provenance ~5–10 KB, events/snapshots ~1–3 KB per change. Rough sizing: 100k profiles with ~2 versions each ≈ 3–5 GB including indexes; extracted document text adds ~30–200 KB per parsed document (only downloaded for high-fit profiles). Binary documents are **not** stored — only metadata, hash and extracted text. The full-text GIN index is the largest index (~20–30 % of `opportunities`). Nothing is deleted on refresh; when size matters, archive `source_record_versions` older than N years to cold storage rather than deleting them.
+# Tango / G2X research expansion
+
+Tango manual research adds agency forecasts for comparison with the existing GSA/DHS connectors, vehicle and
+IDV relationships, subawards, company/award lookups and entitlement-gated G2X news/events.
+Results remain transient; unmatched leads require review and are not auto-ingested or
+merged. See [Tango research setup, licensing and coverage](TANGO_RESEARCH.md).

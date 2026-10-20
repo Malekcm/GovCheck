@@ -59,6 +59,10 @@ export async function dueDetails(db: Db, now = Date.now()): Promise<{ onboarding
     const due = !notConfigured && (nextAt === null || nextAt <= now);
     details.push({ id: r.id, kind: 'reconcile', due, nextAt: nextAt ? new Date(nextAt).toISOString() : null, reason: notConfigured ? 'Not configured' : due ? (lastAt === null ? 'Never reconciled' : 'Interval elapsed') : 'Not due yet' });
   }
+  // Research uses a different, transient-only execution path. Surface the disabled
+  // integration in due-source diagnostics without ever handing it to ingestion.
+  details.push({ id: 'tango_research', kind: 'incremental', due: false, nextAt: null,
+    reason: 'Manual research only. Scheduling requires explicit approval, measured cadence, and MakeGov storage authorization.' });
   return { onboardingComplete: !!company?.onboarding_completed_at, details };
 }
 

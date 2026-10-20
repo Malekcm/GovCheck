@@ -1,6 +1,11 @@
 import path from 'node:path';
 
 export interface AppConfig {
+  tango: {
+    apiKey?: string; enabled: boolean; baseUrl: string; dailyLimit: number;
+    internalCap: number; providerReserve: number; manualReserve: number;
+    testMaxRequests: number; autoSync: boolean; monthlyLimit: number;
+  };
   nodeEnv: string;
   port: number;
   appBaseUrl: string;
@@ -87,6 +92,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const appPassword = nonEmpty(env.APP_PASSWORD);
   const samDailyRequestLimit = int(env.SAM_DAILY_REQUEST_LIMIT, 10);
   return {
+    tango: {
+      apiKey: nonEmpty(env.TANGO_API_KEY), enabled: bool(env.TANGO_ENABLED, false),
+      baseUrl: nonEmpty(env.TANGO_BASE_URL) ?? 'https://tango.dev',
+      dailyLimit: Math.max(1, int(env.TANGO_DAILY_REQUEST_LIMIT, 100)),
+      internalCap: Math.max(0, int(env.TANGO_INTERNAL_DAILY_CAP, 80)),
+      providerReserve: Math.max(20, int(env.TANGO_PROVIDER_RESERVE, 20)),
+      manualReserve: Math.max(10, int(env.TANGO_MANUAL_RESERVE, 10)),
+      testMaxRequests: Math.max(0, Math.min(5, int(env.TANGO_TEST_MAX_REQUESTS, 5))),
+      autoSync: bool(env.TANGO_AUTO_SYNC, false),
+      monthlyLimit: Math.max(0, int(env.TANGO_MONTHLY_REQUEST_LIMIT, 1000)),
+    },
     nodeEnv,
     port: int(env.PORT, 8787),
     appBaseUrl: nonEmpty(env.APP_BASE_URL) ?? 'http://localhost:5173',
@@ -130,6 +146,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
 /** Names of secrets whose values must never be logged or sent to the browser. */
 export const SECRET_ENV_NAMES = [
+  'TANGO_API_KEY',
   'SAM_API_KEY',
   'ANTHROPIC_API_KEY',
   'DATABASE_URL',
