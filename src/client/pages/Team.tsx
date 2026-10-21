@@ -13,7 +13,9 @@ export function TeamPage() {
   const resend=useMutation({mutationFn:(id:string)=>api.post(`/api/team/admin/members/${id}/resend`),onSuccess:()=>toast('Sign-in code sent. Open GovCheck and enter the email code.')});
   const update=useMutation({mutationFn:(m:any)=>api.put(`/api/team/admin/members/${m.user_id}`,{name:m.name,role:m.role,active:m.active}),onSuccess:()=>{qc.invalidateQueries({queryKey:['team-members']});toast('Team member updated.');}});
   if(me.data?.user?.role!=='admin') return <p>Administrator access required.</p>;
-  return <><h1>Team Management</h1><Card title="Invite a colleague"><form onSubmit={e=>{e.preventDefault();invite.mutate();}} className="row">
+  return <><h1>Team Management</h1><Card title="Invite a colleague"><p>Add the colleague's name and work email, choose a role, then select Send invitation. Share the GovCheck URL with them. They can request a fresh code on the sign-in page.</p>
+    {!!me.data?.allowedEmailDomains?.length&&<p>Only {me.data.allowedEmailDomains.map((d:string)=>`@${d}`).join(', ')} addresses are allowed. A matching email domain does not grant access until an administrator adds the person here.</p>}
+    <form onSubmit={e=>{e.preventDefault();invite.mutate();}} className="row">
     <label className="field">Name<input required value={name} onChange={e=>setName(e.target.value)}/></label>
     <label className="field">Email<input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>
     <label className="field">Role<select value={role} onChange={e=>setRole(e.target.value)}>{['admin','manager','member','viewer'].map(r=><option key={r}>{r}</option>)}</select></label>

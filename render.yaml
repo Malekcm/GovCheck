@@ -59,6 +59,8 @@ services:
         value: "true"
       - key: GOVCHECK_AUTH_PROVIDER
         value: "neon"
+      - key: GOVCHECK_ALLOWED_EMAIL_DOMAINS
+        value: "savangroup.com"
       - key: NEON_AUTH_URL
         sync: false
       - key: APP_BASE_URL

@@ -6,6 +6,7 @@ import type { AppDeps } from '../app';
 import { HttpProblem } from '../app';
 import { getCookie } from 'hono/cookie';
 import { NeonAuth } from './neon';
+import { emailAllowed } from './emailPolicy';
 
 export type Role = 'admin' | 'manager' | 'member' | 'viewer';
 export interface Actor { user_id: string; organization_id: string; email: string; name: string; role: Role; active: boolean }
@@ -36,7 +37,7 @@ export async function currentActor(c: Context, deps: AppDeps): Promise<Actor | u
     const row = await tx.one('SELECT * FROM team_sessions WHERE id=$1 AND expires_at>now() FOR UPDATE', [digest(token)]);
     if (!row) return;
     const member = await tx.one<Actor>('SELECT * FROM team_members WHERE user_id=$1 AND active', [row.user_id]);
-    if (!member) return;
+    if (!member || !emailAllowed(deps.config,member.email)) return;
     let credentials:any;
     try { credentials=unseal(deps.config.sessionSecret,row.credentials); } catch { return; }
     if (deps.config.teamAuthProvider === 'neon') {
@@ -56,7 +57,7 @@ export async function currentActor(c: Context, deps: AppDeps): Promise<Actor | u
       await tx.query('UPDATE team_sessions SET credentials=$2 WHERE id=$1', [row.id, seal(deps.config.sessionSecret, credentials)]);
     }
     const verified = await client.auth.getUser(credentials.access_token);
-    if (verified.error || verified.data.user?.id !== member.user_id) return;
+    if (verified.error || verified.data.user?.id !== member.user_id || !emailAllowed(deps.config,verified.data.user?.email)) return;
     return member;
   });
 }

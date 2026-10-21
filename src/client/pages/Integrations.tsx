@@ -13,6 +13,12 @@ export function IntegrationsPage() {
   const research=useMutation({mutationFn:()=>api.post('/api/g2x/research',{tool,arguments:JSON.parse(input),acknowledgeIndividualUse:true}),onSuccess:setResult});
   const selected=tools.data?.find(t=>t.name===tool);
   return <><h1>Integration settings</h1><Card title="G2X individual interactive research"><p>Connect your own G2X membership using OAuth. Content is limited to this page’s current session. Storage, team sharing, automated extraction and transfer to external AI providers are disabled.</p>
+    <details open><summary>How to use G2X</summary><ol>
+      <li>Select <strong>Connect G2X</strong>, sign in to your own G2X account, and approve the connection. You will return to GovCheck.</li>
+      <li>Choose a <strong>Read-only research tool</strong>. The list depends on the tools and access included with your G2X account.</li>
+      <li>Expand <strong>Required tool input schema</strong>. Enter a JSON object using that tool's required field names and values in <strong>Research inputs as JSON</strong>. For example, research the buyer or incumbent for an opportunity you are pursuing. Each tool has its own input fields.</li>
+      <li>Select <strong>Run individual research</strong> and review the returned records and source links. Use <strong>Clear research results</strong> when finished. Results are not imported into opportunities or saved for teammates.</li>
+    </ol><p>If G2X refuses a request, check your account's plan and permissions. Reconnect for an expired sign-in; wait before retrying a rate-limit error. <a href="https://g2x.com/mcp/tools" target="_blank" rel="noreferrer">G2X tool reference</a></p></details>
     <p>Interactive research: {status.data?.interactiveResearchEnabled?'Enabled':'Disabled pending authorization'} · {status.data?.connected?'Account connected':'No connected account'}</p>
     {[status.error,tools.error,connect.error,disconnect.error,research.error].filter(Boolean).map((e,i)=><ErrorBox key={i} error={e}/>)}
     <button className="btn" disabled={!status.data?.interactiveResearchEnabled||connect.isPending} onClick={()=>connect.mutate()}>Connect G2X</button>
