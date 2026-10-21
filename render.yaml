@@ -55,7 +55,8 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: GOVCHECK_TEAM_AUTH_ENABLED
-        value: "false"
+        # Production cutover is complete. Blueprint sync must not restore shared login.
+        value: "true"
       - key: GOVCHECK_AUTH_PROVIDER
         value: "neon"
       - key: NEON_AUTH_URL
@@ -73,6 +74,6 @@ services:
       - key: RESEARCH_ESTIMATED_COST_USD
         sync: false
       - key: G2X_INTERACTIVE_RESEARCH_ENABLED
-        value: "false"
+        value: "true"
       - key: G2X_CLIENT_ID
         sync: false

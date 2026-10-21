@@ -1,6 +1,6 @@
 # Team accounts and capture research
 
-GovCheck supports team authentication, assignments, research jobs and personal G2X OAuth. The production deployment uses Neon PostgreSQL and Neon managed Better Auth, hosted on Render. A Supabase compatibility provider is retained for previously configured installations; Supabase is not required for Neon deployments.
+GovCheck supports team authentication, assignments, research jobs and personal G2X OAuth. The production deployment uses Neon PostgreSQL and Neon managed Better Auth, hosted on Render. The Render Blueprint keeps team authentication and personal G2X enabled after the authorized production cutover, so automatic Blueprint reconciliation cannot restore shared-password login. New Blueprint installations must supply the branch Auth URL and application origin before starting. A Supabase compatibility provider is retained for previously configured installations; Supabase is not required for Neon deployments.
 
 ## Architecture review and migration risks
 
