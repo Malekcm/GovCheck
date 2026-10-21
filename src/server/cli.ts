@@ -1,3 +1,5 @@
+import { processResearchJob } from './research/workflow';
+import { bootstrapAdmin } from './team/auth';
 import { bootstrap, loadEnvFile } from './bootstrap';
 import { runPromoteCli } from './db/promoteCli';
 import { samBudgetStatus } from './pipeline/budget';
@@ -44,6 +46,14 @@ async function main() {
   const { log, db } = deps;
   try {
     switch (cmd) {
+      case 'research-worker':
+        if (!deps.config.teamAuthEnabled || !deps.config.researchEnabled || !deps.config.anthropicApiKey) throw new Error('Enable team authentication, research and the provider key first.');
+        await processResearchJob(deps); // One approved job per invocation; safe on time-limited runners.
+        break;
+      case 'bootstrap-admin':
+        await bootstrapAdmin(deps);
+        log.info('Initial administrator invited. Remove GOVCHECK_BOOTSTRAP_ADMIN_EMAIL after acceptance.');
+        break;
       case 'tango': {
         if (args[0] === 'status') {
           console.log(JSON.stringify(await new TangoBudget(db, deps.config.tango).status(), null, 2));

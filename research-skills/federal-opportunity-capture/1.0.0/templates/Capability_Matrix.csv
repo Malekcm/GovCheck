@@ -1,0 +1,4 @@
+Requirement ID,Requirement / workstream,Current or historical source,Expected deliverable,Company fit (STRONG/PARTIAL/GAP/UNKNOWN),Example contract / reference,Actual role,Approved proof,Missing artifact,Owner,Status,Next review date
+R01,Program and portfolio management,OPEN,OPEN,UNKNOWN,,,,,Capture lead,OPEN,
+R02,Data integration and analytics,OPEN,OPEN,STRONG,,,,Provide approved project ID/deliverables,Data lead,INTERNAL_UNVALIDATED,
+R03,Enterprise data and IT architecture,OPEN,OPEN,STRONG,,,,Provide architecture artifacts and named lead,Architecture lead,INTERNAL_UNVALIDATED,

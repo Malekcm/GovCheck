@@ -1,0 +1,19 @@
+{
+  "name": "federal-opportunity-capture",
+  "version": "1.0.0",
+  "importedOn": "2026-10-20",
+  "source": "Complete original user-owned skill package verified locally; reusable runtime subset distributed without company-specific data or historical customer reports.",
+  "files": {
+    "README.md": "4c62c02f764e872a462629346443298e026dd35155076528924f3d26ac35420e",
+    "RUNTIME.md": "79e8826500327eb763c4928bd69a6b97b5746ac2a6f2bc133366428ba080e284",
+    "SKILL.md": "572bc75b0ae7cfb6f36a9dedd6d619b25ae47df6eb6924b06b0420fb990ccbd5",
+    "references/bd_question_bank.md": "a84f6ddf76f14d99c0bb405da990c78a387acb6fce6d932447fd302b8ed2b2ba",
+    "references/evidence_and_sources.md": "cd66cc6541cc8b57c29d45c5562e8b147e86374bbf97feb2d47b0057f7f43afe",
+    "references/word_report_standard.md": "222b8bc11d37c9bf543068cb37a4c5ef04370daed02c03ce4a93d7e8a5409e6a",
+    "scripts/build_blank_template.py": "bc4b94610def3d78a79570a54fe7cde1d4bd9fc978b992aeef933261b0d13f19",
+    "scripts/docx_table_layout.py": "0a6a30edb7a2e5c9d01cb92ce6fc609cb121aa6c1332675c765da2de081e287d",
+    "templates/Capability_Matrix.csv": "59981c5011a7d0d4412511e487910d371c81f6dfa067c41f5fa5e9364f7daaf5",
+    "templates/Federal_Opportunity_Research_Template.docx": "9e4323453cdb6c1e4f0eeb5303bdd6b5a7cfb132406005272d61066b5ccd7d82",
+    "templates/opportunity_intake.yaml": "6ac06bed61feac2c1dca166cf37ffcbf021abda3e62118cb60f97d40c53198a2"
+  }
+}

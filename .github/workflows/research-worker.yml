@@ -1,0 +1,35 @@
+name: Approved capture research queue
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: govcheck-research-worker
+  cancel-in-progress: false
+jobs:
+  research:
+    # Configure this repository variable only after live staging acceptance.
+    if: vars.GOVCHECK_RESEARCH_WORKER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: production
+      REQUIRE_DATABASE_URL: 'true'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_SSL_CA_BASE64: ${{ secrets.DATABASE_SSL_CA_BASE64 }}
+      DATABASE_POOL_MAX: '2'
+      GOVCHECK_TEAM_AUTH_ENABLED: 'true'
+      GOVCHECK_RESEARCH_ENABLED: 'true'
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SCHEDULER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # One already-approved job per invocation; never runs opportunity ingestion or G2X.
+      - run: npm run research:worker

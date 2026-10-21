@@ -1,3 +1,4 @@
+import { actor } from '../team/security';
 import type { Hono } from 'hono';
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
@@ -115,8 +116,9 @@ export function registerBdRoutes(app: Hono, deps: AppDeps) {
       }
       if (sets.length) {
         await tx.query(`UPDATE opportunity_capture SET ${sets.join(', ')}, updated_at = now() WHERE opportunity_id = $1`, params);
-        await tx.query('INSERT INTO opportunity_capture_history (opportunity_id, changes) VALUES ($1, $2::jsonb)', [id, json(changes)]);
+        await tx.query('INSERT INTO opportunity_capture_history (opportunity_id, changes, actor_id) VALUES ($1, $2::jsonb,$3)', [id, json(changes), actor(c)?.user_id ?? null]);
       }
+      if (sets.length) await tx.query('UPDATE opportunity_capture SET actor_id=$2 WHERE opportunity_id=$1', [id,actor(c)?.user_id ?? null]);
       return tx.one('SELECT * FROM opportunity_capture WHERE opportunity_id = $1', [id]);
     });
     return c.json(result);
@@ -128,7 +130,7 @@ export function registerBdRoutes(app: Hono, deps: AppDeps) {
     const rows = await db.query<any>(
       `SELECT ${LIST_COLUMNS}, cap.priority AS capture_priority, cap.win_probability, cap.proposal_deadline, cap.bid_decision, cap.partners, cap.updated_at AS capture_updated_at
        FROM opportunities o ${DECISION_JOIN}
-       WHERE o.merged_into_id IS NULL AND (cap.opportunity_id IS NOT NULL OR d.decision = ANY($1::text[]))
+       WHERE o.merged_into_id IS NULL AND (cap.opportunity_id IS NOT NULL OR d.decision = ANY($1::text[]) OR EXISTS (SELECT 1 FROM opportunity_assignments a WHERE a.opportunity_id=o.id AND a.active))
          AND ($2::boolean OR cap.pursuit_stage IS NULL OR cap.pursuit_stage = ANY($3::text[]))
        ORDER BY cap.next_action_date ASC NULLS LAST, COALESCE(cap.proposal_deadline, o.response_deadline) ASC NULLS LAST, o.priority_score DESC NULLS LAST
        LIMIT 1000`,
@@ -248,14 +250,14 @@ export function registerBdRoutes(app: Hono, deps: AppDeps) {
   // ---------------------------------------------------------------------------
   // Exports
   // ---------------------------------------------------------------------------
-  const exportRows = async (query: Record<string, string>) => {
+  const exportRows = async (query: Record<string, string>, userId?: string) => {
     const f = OpportunityFilters.parse(query);
-    const q = buildOpportunityQuery(f, { lastVisit: await getLastVisit(deps), includeGrantsDefault: await includeGrantsDefault(deps) });
+    const q = buildOpportunityQuery(f, { lastVisit: await getLastVisit(deps), userId, includeGrantsDefault: await includeGrantsDefault(deps) });
     return db.query<any>(`SELECT ${LIST_COLUMNS}, o.primary_url, o.data_completeness FROM opportunities o ${DECISION_JOIN} WHERE ${q.where} ORDER BY ${q.orderBy} LIMIT 50000`, q.params);
   };
 
   app.get('/api/opportunities/export.xlsx', async (c) => {
-    const rows = await exportRows(c.req.query());
+    const rows = await exportRows(c.req.query(), actor(c)?.user_id);
     const wb = new ExcelJS.Workbook();
     wb.creator = 'GovCheck';
     const ws = wb.addWorksheet('Opportunities', { views: [{ state: 'frozen', ySplit: 1 }] });

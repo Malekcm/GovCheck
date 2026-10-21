@@ -1,3 +1,4 @@
+import { actor } from '../team/security';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import { DECISIONS, PROVENANCE_RANK, type Provenance } from '../../shared/domain';
@@ -47,13 +48,13 @@ export function retrainState() {
 export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
   const { db } = deps;
 
-  const parseFilters = async (query: Record<string, string>) => {
+  const parseFilters = async (query: Record<string, string>, userId?: string) => {
     const f = OpportunityFilters.parse(query);
-    return { f, q: buildOpportunityQuery(f, { lastVisit: await getLastVisit(deps), includeGrantsDefault: await includeGrantsDefault(deps) }) };
+    return { f, q: buildOpportunityQuery(f, { lastVisit: await getLastVisit(deps), userId, includeGrantsDefault: await includeGrantsDefault(deps) }) };
   };
 
   app.get('/api/opportunities', async (c) => {
-    const { f, q } = await parseFilters(c.req.query());
+    const { f, q } = await parseFilters(c.req.query(), actor(c)?.user_id);
     const pageSize = f.pageSize ?? 50;
     const page = f.page ?? 1;
     const total = await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM opportunities o ${DECISION_JOIN} WHERE ${q.where}`, q.params);
@@ -66,7 +67,7 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
   });
 
   app.get('/api/opportunities/export.csv', async (c) => {
-    const { q } = await parseFilters(c.req.query());
+    const { q } = await parseFilters(c.req.query(), actor(c)?.user_id);
     const LIMIT = 50_000;
     const rows = await db.query<any>(`SELECT ${LIST_COLUMNS}, o.primary_url, o.data_completeness FROM opportunities o ${DECISION_JOIN} WHERE ${q.where} ORDER BY ${q.orderBy} LIMIT ${LIMIT + 1}`, q.params);
     // Never truncate silently: say so in a header and in the file itself.
@@ -174,7 +175,7 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
       db.query('SELECT * FROM match_score_components WHERE opportunity_id = $1', [id]),
       db.query('SELECT kind, component, text, severity, detail FROM match_explanations WHERE opportunity_id = $1', [id]),
       db.query('SELECT * FROM user_opportunity_decisions WHERE opportunity_id = $1 ORDER BY decided_at DESC', [id]),
-      db.query('SELECT * FROM user_notes WHERE opportunity_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC', [id]),
+      db.query('SELECT n.*,m.name AS actor_name FROM user_notes n LEFT JOIN team_members m ON m.user_id=n.actor_id WHERE n.opportunity_id=$1 AND n.deleted_at IS NULL ORDER BY n.created_at DESC', [id]),
       db.query('SELECT tag FROM user_tags WHERE opportunity_id = $1 ORDER BY tag', [id]),
       db.query('SELECT * FROM user_field_overrides WHERE opportunity_id = $1', [id]),
       db.one<{ value: any }>('SELECT value FROM app_state WHERE key = $1', [`ai_brief:${id}`]),
@@ -228,8 +229,13 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
     const recommendedActions = recommendActions({ opportunity: opp, documents, contacts, requirements, explanations, vendors, relationships, currentDecision, capture });
 
     return c.json({
+      lastUpdatedBy: await db.one("SELECT m.name,a.created_at FROM team_audit a JOIN team_members m ON m.user_id=a.actor_id WHERE a.path LIKE $1 AND a.path NOT LIKE '%/view' AND a.path NOT LIKE '%/research/preview' ORDER BY a.created_at DESC LIMIT 1", [`/api/opportunities/${id}/%`]),
       opportunity: opp,
       capture,
+      retainedCapturePlans: await db.query(`WITH RECURSIVE merged AS (
+        SELECT id,title FROM opportunities WHERE merged_into_id=$1
+        UNION ALL SELECT o.id,o.title FROM opportunities o JOIN merged m ON o.merged_into_id=m.id
+      ) SELECT cap.*,m.title FROM merged m JOIN opportunity_capture cap ON cap.opportunity_id=m.id`,[id]),
       recommendedActions,
       dimensions: (score as any)?.dimensions ?? null,
       sources,
@@ -280,8 +286,8 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
     const row = await db.tx(async (tx) => {
       await tx.query('UPDATE user_opportunity_decisions SET is_current = false WHERE opportunity_id = $1 AND is_current', [id]);
       return tx.one(
-        `INSERT INTO user_opportunity_decisions (opportunity_id, decision, reasons, explanation, is_current, feature_snapshot) VALUES ($1,$2,$3::text[],$4,true,$5::jsonb) RETURNING *`,
-        [id, b.decision, b.reasons, b.explanation ?? null, json(feat?.detail?.features ?? null)],
+        `INSERT INTO user_opportunity_decisions (opportunity_id, decision, reasons, explanation, is_current, feature_snapshot, actor_id) VALUES ($1,$2,$3::text[],$4,true,$5::jsonb,$6) RETURNING *`,
+        [id, b.decision, b.reasons, b.explanation ?? null, json(feat?.detail?.features ?? null), actor(c)?.user_id ?? null],
       );
     });
     scheduleRetrain(deps, `decision: ${b.decision}`);
@@ -299,11 +305,11 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
   app.post('/api/opportunities/:id/notes', async (c) => {
     const id = await exists(c.req.param('id'));
     const b = z.object({ body: z.string().min(1).max(20000) }).parse(await readJson(c));
-    return c.json(await db.one('INSERT INTO user_notes (opportunity_id, body) VALUES ($1,$2) RETURNING *', [id, b.body]));
+    return c.json(await db.one('INSERT INTO user_notes (opportunity_id, body, actor_id) VALUES ($1,$2,$3) RETURNING *', [id, b.body, actor(c)?.user_id ?? null]));
   });
   app.put('/api/notes/:noteId', async (c) => {
     const b = z.object({ body: z.string().min(1).max(20000) }).parse(await readJson(c));
-    return c.json(await db.one('UPDATE user_notes SET body = $2, updated_at = now() WHERE id::text = $1 RETURNING *', [c.req.param('noteId'), b.body]));
+    return c.json(await db.one('UPDATE user_notes SET body = $2, actor_id=$3, updated_at = now() WHERE id::text = $1 RETURNING *', [c.req.param('noteId'), b.body, actor(c)?.user_id ?? null]));
   });
   app.delete('/api/notes/:noteId', async (c) => {
     await db.query('UPDATE user_notes SET deleted_at = now() WHERE id::text = $1', [c.req.param('noteId')]);

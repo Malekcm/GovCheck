@@ -54,3 +54,25 @@ services:
         generateValue: true
       - key: SESSION_SECRET
         generateValue: true
+      - key: GOVCHECK_TEAM_AUTH_ENABLED
+        value: "false"
+      - key: GOVCHECK_AUTH_PROVIDER
+        value: "neon"
+      - key: NEON_AUTH_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GOVCHECK_RESEARCH_ENABLED
+        value: "false"
+      - key: RESEARCH_ESTIMATED_COST_USD
+        sync: false
+      - key: G2X_INTERACTIVE_RESEARCH_ENABLED
+        value: "false"
+      - key: G2X_CLIENT_ID
+        sync: false

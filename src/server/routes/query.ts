@@ -11,6 +11,9 @@ const bool = z
   .transform((v) => (v === undefined ? undefined : v === true || v === 'true' || v === '1'));
 
 export const OpportunityFilters = z.object({
+  assignedUser: z.uuid().optional(),
+  assignment: z.enum(['mine','collaborations','unassigned','all']).optional(),
+  assignmentDue: z.iso.date().optional(),
   q: z.string().max(300).optional(),
   minFit: num,
   maxFit: num,
@@ -71,7 +74,7 @@ export interface BuiltQuery {
 }
 
 /** Translate filters into a parameterized WHERE clause over `opportunities o` (+ current decision `d`). */
-export function buildOpportunityQuery(f: OpportunityFiltersT, ctx: { lastVisit: string | null; includeGrantsDefault: boolean }): BuiltQuery {
+export function buildOpportunityQuery(f: OpportunityFiltersT, ctx: { lastVisit: string | null; includeGrantsDefault: boolean; userId?: string }): BuiltQuery {
   const where: string[] = ['o.merged_into_id IS NULL'];
   const params: unknown[] = [];
   const p = (v: unknown) => {
@@ -79,6 +82,11 @@ export function buildOpportunityQuery(f: OpportunityFiltersT, ctx: { lastVisit: 
     return `$${params.length}`;
   };
 
+  if (f.assignment === 'unassigned') where.push('NOT EXISTS (SELECT 1 FROM opportunity_assignments a WHERE a.opportunity_id=o.id AND a.active)');
+  const assignedUser = ['mine','collaborations'].includes(f.assignment ?? '') ? ctx.userId : f.assignedUser;
+  if (['mine','collaborations'].includes(f.assignment ?? '') && !assignedUser) where.push('false');
+  if (assignedUser) where.push(`EXISTS (SELECT 1 FROM opportunity_assignments a WHERE a.opportunity_id=o.id AND a.active AND a.user_id=${p(assignedUser)} ${f.assignment === 'collaborations' ? "AND a.assignment_role='collaborator'" : f.assignment === 'mine' ? "AND a.assignment_role='owner'" : ''})`);
+  if (f.assignmentDue) where.push(`EXISTS (SELECT 1 FROM opportunity_assignments a WHERE a.opportunity_id=o.id AND a.active AND a.due_date<=${p(f.assignmentDue)}::date)`);
   if (f.q) {
     const term = f.q.trim();
     const ident = term.toUpperCase().replace(/[\s\-._]+/g, '');
@@ -172,7 +180,7 @@ export const LIST_COLUMNS = `o.id, o.title, o.opportunity_class, o.stage, o.noti
   o.response_deadline, o.posted_at, o.last_changed_at, o.first_seen_at, o.fit_score, o.preference_score, o.eligibility_status, o.connector_ids, o.data_completeness,
   o.has_documents, o.has_incumbent, o.incumbent_name, o.recompete_signal, o.place_state, o.place_city, o.contract_vehicle, o.performance_end, o.seen_status,
   o.attractiveness_score, o.confidence_score, o.priority_score,
-  d.decision, d.reasons AS decision_reasons, cap.pursuit_stage, cap.owner AS capture_owner, cap.next_action, cap.next_action_date`;
+  d.decision, d.reasons AS decision_reasons, cap.pursuit_stage, COALESCE((SELECT m.name FROM opportunity_assignments a JOIN team_members m ON m.user_id=a.user_id WHERE a.opportunity_id=o.id AND a.active AND a.assignment_role='owner' LIMIT 1),cap.owner) AS capture_owner, cap.next_action, cap.next_action_date`;
 
 /** Opportunities the team is actively following: Pursue / Interested / Watch, or in an active capture stage. Alias `o`. */
 export const TRACKED_SQL = `(EXISTS (SELECT 1 FROM user_opportunity_decisions td WHERE td.opportunity_id = o.id AND td.is_current AND td.decision IN ('pursue','interested','watch'))

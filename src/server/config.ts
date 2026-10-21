@@ -6,6 +6,17 @@ export interface AppConfig {
     internalCap: number; providerReserve: number; manualReserve: number;
     testMaxRequests: number; autoSync: boolean; monthlyLimit: number;
   };
+  teamAuthEnabled: boolean;
+  teamAuthProvider: 'neon' | 'supabase';
+  neonAuthUrl?: string;
+  supabaseUrl?: string;
+  supabasePublishableKey?: string;
+  supabaseServiceKey?: string;
+  bootstrapAdminEmail?: string;
+  researchEnabled: boolean;
+  researchEstimatedCostUsd?: number;
+  g2xEnabled: boolean;
+  g2xClientId?: string;
   nodeEnv: string;
   port: number;
   appBaseUrl: string;
@@ -103,6 +114,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       autoSync: bool(env.TANGO_AUTO_SYNC, false),
       monthlyLimit: Math.max(0, int(env.TANGO_MONTHLY_REQUEST_LIMIT, 1000)),
     },
+    teamAuthEnabled: bool(env.GOVCHECK_TEAM_AUTH_ENABLED, false),
+    teamAuthProvider: env.GOVCHECK_AUTH_PROVIDER === 'neon' ? 'neon' : 'supabase',
+    neonAuthUrl: nonEmpty(env.NEON_AUTH_URL),
+    supabaseUrl: nonEmpty(env.SUPABASE_URL),
+    supabasePublishableKey: nonEmpty(env.SUPABASE_PUBLISHABLE_KEY),
+    supabaseServiceKey: nonEmpty(env.SUPABASE_SERVICE_ROLE_KEY),
+    bootstrapAdminEmail: nonEmpty(env.GOVCHECK_BOOTSTRAP_ADMIN_EMAIL),
+    researchEnabled: bool(env.GOVCHECK_RESEARCH_ENABLED, false),
+    researchEstimatedCostUsd: Number(env.RESEARCH_ESTIMATED_COST_USD) > 0 ? Number(env.RESEARCH_ESTIMATED_COST_USD) : undefined,
+    g2xEnabled: bool(env.G2X_INTERACTIVE_RESEARCH_ENABLED, false),
+    g2xClientId: nonEmpty(env.G2X_CLIENT_ID),
     nodeEnv,
     port: int(env.PORT, 8787),
     appBaseUrl: nonEmpty(env.APP_BASE_URL) ?? 'http://localhost:5173',

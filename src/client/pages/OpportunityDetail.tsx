@@ -1,3 +1,6 @@
+import { useOpportunityPermission } from '../useOpportunityPermission';
+import { Assignments } from '../components/Assignments';
+import { CaptureResearch } from '../components/CaptureResearch';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -11,6 +14,8 @@ import { Card, ClassBadge, Deadline, Dimension, EligibilityBadge, Empty, ErrorBo
 
 const SECTIONS: [string, string][] = [
   ['actions', 'Next actions'],
+  ['assignments', 'Owner and collaborators'],
+  ['research', 'Initial research'],
   ['capture', 'Capture plan'],
   ['summary', 'Executive summary'],
   ['match', 'Why we match'],
@@ -234,7 +239,7 @@ export function OpportunityDetailPage() {
       )}
       {o.stage === 'forecast' && (
         <div className="forecast-banner">
-          <FileText size={16} /> STAGE: Forecast / Pre-Solicitation Intelligence — no solicitation has been released{d.relationships.some((r: any) => ['solicitation', 'combined_synopsis'].includes(r.other_stage)) ? ' (a possibly related solicitation is linked below)' : ''}.
+          <FileText size={16} /> STAGE: Forecast / Pre-Solicitation Intelligence — current solicitation has not been verified{d.relationships.some((r: any) => ['solicitation', 'combined_synopsis'].includes(r.other_stage)) ? ' (a possibly related solicitation is linked below)' : ''}.
         </div>
       )}
       {o.opportunity_class === 'subcontract' && (
@@ -258,6 +263,7 @@ export function OpportunityDetailPage() {
               {o.seen_status !== 'active' && <span className="badge warn">No longer listed by source</span>}
             </div>
             <h1>{o.title}</h1>
+            <p className="small muted">Last team update: {d.lastUpdatedBy ? `${d.lastUpdatedBy.name} · ${relative(d.lastUpdatedBy.created_at)}` : 'Historical actor unknown'}</p>
             <div className="muted" style={{ marginTop: 4 }}>
               {[o.department_name, o.subtier_name, o.office_name].filter(Boolean).join(' › ') || (o.opportunity_class === 'subcontract' ? 'Prime contractor opportunity' : 'Agency not reported')}
             </div>
@@ -386,7 +392,10 @@ export function OpportunityDetailPage() {
             )}
           </Card>
 
+          <Assignments id={o.id} />
+          <CaptureResearch id={o.id} />
           <CaptureCard id={o.id} capture={d.capture} deadline={o.response_deadline} />
+          {!!d.retainedCapturePlans?.length && <Card title="Capture plans retained from merged profiles"><p>These plans remain available for reconciliation. Undoing the merge restores their original profiles.</p>{d.retainedCapturePlans.map((plan:any)=><details key={plan.opportunity_id}><summary>{plan.title} · {plan.pursuit_stage}</summary><p>Legacy owner: {plan.owner??'Unknown'} · Next action: {plan.next_action??'Open'} · Due: {plan.next_action_date??'Open'}</p><p>Notes: {plan.capture_notes??'None'}</p><p>Win themes: {plan.win_themes??'None'}</p><p>Risks: {plan.risks??'None'}</p><p>Questions: {plan.questions??'None'}</p></details>)}</Card>}
 
           {/* Executive summary */}
           <Card id="summary" title="Executive summary">
@@ -1056,7 +1065,7 @@ export function OpportunityDetailPage() {
           <ChangeHistory opportunityId={o.id} changes={changes} firstSeen={o.first_seen_at} hasDecision={!!d.currentDecision} />
 
           {/* Provenance */}
-          <Card id="sources" title="Sources / provenance">
+          <Card id="sources" title="Sources and Evidence">
             <h3>Contributing source records</h3>
             <table className="data" style={{ marginBottom: 12 }}>
               <thead>
@@ -1183,6 +1192,7 @@ export function OpportunityDetailPage() {
 }
 
 function NotesAndTags({ oppId, notes, tags }: { oppId: string; notes: any[]; tags: string[] }) {
+  const {canEdit}=useOpportunityPermission(oppId);
   const qc = useQueryClient();
   const [body, setBody] = useState('');
   const invalidate = () => qc.invalidateQueries({ queryKey: ['opportunity', oppId] });
@@ -1191,6 +1201,7 @@ function NotesAndTags({ oppId, notes, tags }: { oppId: string; notes: any[]; tag
   const saveTags = useMutation({ mutationFn: (t: string[]) => api.put(`/api/opportunities/${oppId}/tags`, { tags: t }), onSuccess: invalidate });
   return (
     <Card id="notes" title={<h2>Notes & tags <Prov p="user_entered" /></h2>}>
+      <fieldset disabled={!canEdit} style={{border:0,padding:0,margin:0}}>
       <div className="grid grid-2">
         <div className="stack">
           <textarea rows={3} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Capture notes, teaming ideas, questions for the CO…" />
@@ -1201,7 +1212,7 @@ function NotesAndTags({ oppId, notes, tags }: { oppId: string; notes: any[]; tag
             <div key={n.id} className="card" style={{ padding: 8 }}>
               <div style={{ whiteSpace: 'pre-wrap' }}>{n.body}</div>
               <div className="spread small muted">
-                {date(n.created_at, true)}
+                {n.actor_name??'Historical actor unknown'} · {date(n.updated_at??n.created_at, true)}
                 <button className="btn ghost sm danger" onClick={() => del.mutate(n.id)}>
                   Delete
                 </button>
@@ -1216,6 +1227,7 @@ function NotesAndTags({ oppId, notes, tags }: { oppId: string; notes: any[]; tag
           <p className="small muted" style={{ marginTop: 8 }}>Notes, tags and decisions are never changed by data refreshes.</p>
         </div>
       </div>
+      </fieldset>
     </Card>
   );
 }
@@ -1261,6 +1273,7 @@ function LinkModal({ oppId, onClose }: { oppId: string; onClose: () => void }) {
 
 /** Lightweight capture plan: stage, owner, probability, next action, partners, win themes, risks. */
 function CaptureCard({ id, capture, deadline }: { id: string; capture: any | null; deadline: string | null }) {
+  const {canEdit,teamAuth}=useOpportunityPermission(id);
   const qc = useQueryClient();
   const [form, setForm] = useState<any>(() => ({
     pursuit_stage: capture?.pursuit_stage ?? 'discovered',
@@ -1308,11 +1321,12 @@ function CaptureCard({ id, capture, deadline }: { id: string; capture: any | nul
         </h2>
       }
       actions={
-        <button className="btn primary sm no-print" onClick={() => save.mutate()} disabled={save.isPending}>
+        <button className="btn primary sm no-print" onClick={() => save.mutate()} disabled={!canEdit||save.isPending}>
           Save
         </button>
       }
     >
+      <fieldset disabled={!canEdit||save.isPending} style={{border:0,padding:0,margin:0}}>
       <div className="grid grid-3">
         <label className="field">
           Pursuit stage
@@ -1325,8 +1339,8 @@ function CaptureCard({ id, capture, deadline }: { id: string; capture: any | nul
           </select>
         </label>
         <label className="field">
-          Owner
-          <input type="text" value={form.owner} onChange={(e) => set('owner', e.target.value)} placeholder="BD lead" />
+          {teamAuth ? 'Legacy owner text' : 'Owner'}
+          <input type="text" disabled={teamAuth} value={form.owner} onChange={(e) => set('owner', e.target.value)} placeholder="BD lead" />
         </label>
         <label className="field">
           Priority
@@ -1382,6 +1396,7 @@ function CaptureCard({ id, capture, deadline }: { id: string; capture: any | nul
         </label>
       </div>
       {capture?.updated_at && <div className="small muted">Last updated {relative(capture.updated_at)}. Refreshes never modify the capture plan.</div>}
+      </fieldset>
     </Card>
   );
 }

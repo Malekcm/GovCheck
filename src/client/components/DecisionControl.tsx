@@ -1,3 +1,4 @@
+import { useOpportunityPermission } from '../useOpportunityPermission';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DECISION_LABELS, PRIMARY_DECISIONS, type Decision } from '../../shared/domain';
@@ -16,6 +17,7 @@ const NEUTRAL: Decision[] = ['review_later', 'maybe', 'duplicate_irrelevant'];
 
 /** Strong pursue / Pursue / Partner-sub / Watch / Review later / Pass / Not eligible / Duplicate — with structured reasons and free text. */
 export function DecisionControl({ opportunityId, current }: { opportunityId: string; current: any | null }) {
+  const {canEdit}=useOpportunityPermission(opportunityId);
   const qc = useQueryClient();
   const meta = useQuery({ queryKey: ['meta'], queryFn: () => api.get<{ feedbackReasons: Reason[] }>('/api/meta') });
   const [pending, setPending] = useState<Decision | null>(null);
@@ -54,12 +56,12 @@ export function DecisionControl({ opportunityId, current }: { opportunityId: str
     <div>
       <div className="decision-bar">
         {PRIMARY_DECISIONS.map((d) => (
-          <button key={d} className={`btn sm ${d} ${current?.decision === d ? 'on' : ''}`} onClick={() => open(d)}>
+          <button key={d} disabled={!canEdit} className={`btn sm ${d} ${current?.decision === d ? 'on' : ''}`} onClick={() => open(d)}>
             {DECISION_LABELS[d]}
           </button>
         ))}
         {current && (
-          <button className="btn ghost sm" onClick={() => clear.mutate()} title="Remove the current decision (history is kept)">
+          <button className="btn ghost sm" disabled={!canEdit} onClick={() => clear.mutate()} title="Remove the current decision (history is kept)">
             Clear
           </button>
         )}

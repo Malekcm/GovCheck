@@ -28,7 +28,7 @@ export async function survivingId(db: Db, id: string): Promise<string> {
 function agenciesCompatible(a: string | null | undefined, b: string | null | undefined): boolean {
   const ka = nameKey(a);
   const kb = nameKey(b);
-  if (!ka || !kb) return true; // unknown on one side: identifier decides
+  if (!ka || !kb) return false; // reused solicitation/contract numbers need known compatible buyers
   if (ka === kb) return true;
   // Tolerate naming variants ("DEPT OF DEFENSE" vs "DEPARTMENT OF DEFENSE")
   const norm = (k: string) => k.replace(/\bDEPT\b/g, 'DEPARTMENT').replace(/\bTHE\b/g, '').replace(/\s+/g, ' ').trim();
@@ -61,7 +61,7 @@ export async function resolveOpportunity(db: Db, n: NormalizedOpportunity, sourc
     );
     for (const r of rows) {
       if (r.is_signal) continue; // intelligence signals are linked by relationship, never merged into
-      if (ident.type === 'solicitation_number') {
+      if (['solicitation_number','piid','award_number','forecast_id'].includes(ident.type)) {
         // Solicitation numbers are only unique within an agency; require compatible agencies.
         if (!agenciesCompatible(r.department_name, n.agency.department)) continue;
         if (r.opportunity_class !== n.opportunityClass && !(r.opportunity_class === 'prime' && n.opportunityClass === 'prime')) continue;

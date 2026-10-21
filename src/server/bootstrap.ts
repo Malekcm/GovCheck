@@ -34,7 +34,7 @@ export async function bootstrap(overrides: Partial<AppConfig> = {}): Promise<App
   }
   if (!config.databaseUrl && config.nodeEnv === 'production')
     log.warn('Running in production on the embedded PGlite database. Make sure the data directory is on a persistent volume, or set DATABASE_URL.');
-  if (config.nodeEnv === 'production' && !config.appPassword) log.warn('APP_PASSWORD is not set: anyone who knows this URL can use GovCheck. Set APP_PASSWORD on hosted deployments.');
+  if (config.nodeEnv === 'production' && !config.appPassword && !config.teamAuthEnabled) log.warn('APP_PASSWORD is not set: anyone who knows this URL can use GovCheck. Set APP_PASSWORD on hosted deployments.');
   if (config.nodeEnv === 'production' && config.appPassword && config.sessionSecret === config.appPassword)
     log.warn('SESSION_SECRET is not set; set a long random value so login cookies cannot be forged.');
   if (config.databaseUrl) {
