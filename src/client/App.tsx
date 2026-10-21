@@ -189,7 +189,7 @@ export function App() {
   const [unauth, setUnauth] = useState(false);
   const me = useQuery({
     queryKey: ['me'],
-    queryFn: () => api.get<{ authRequired: boolean; authenticated: boolean; teamAuth?: boolean; authProvider?: string; user?: any }>('/api/auth/me'),
+    queryFn: () => api.get<{ authRequired: boolean; authenticated: boolean; teamAuth?: boolean; authProvider?: string; allowedEmailDomains?:string[]; user?: any }>('/api/auth/me'),
     // A waking server answers 503 (or not at all) for up to a minute: keep retrying quietly.
     retry: (count, err) => count < 60 && (!(err instanceof ApiError) || err.status >= 500),
     retryDelay: 3000,
@@ -206,7 +206,7 @@ export function App() {
   if (window.location.pathname === '/auth/accept' && me.data?.authProvider !== 'neon') return <AcceptInvitation />;
   if (me.isLoading) return me.failureCount > 0 ? <WakingUp attempt={me.failureCount} /> : null;
   if (me.isError) return <WakingUp attempt={me.failureCount} />;
-  if ((me.data?.authRequired && !me.data.authenticated) || unauth) return me.data?.authProvider === 'neon' ? <NeonLogin onDone={() => window.location.assign('/')} /> : <LoginPage teamAuth={!!me.data?.teamAuth} onDone={() => window.location.reload()} />;
+  if ((me.data?.authRequired && !me.data.authenticated) || unauth) return me.data?.authProvider === 'neon' ? <NeonLogin allowedDomains={me.data.allowedEmailDomains} onDone={() => window.location.assign('/')} /> : <LoginPage teamAuth={!!me.data?.teamAuth} onDone={() => window.location.reload()} />;
 
   return (
     <div className="shell">

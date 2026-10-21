@@ -1,5 +1,6 @@
 import type { AppConfig } from '../config';
 import { HttpProblem, type AppDeps } from '../app';
+import { requireAllowedEmail } from './emailPolicy';
 
 export interface NeonCredentials { provider: 'neon'; cookie: string }
 export interface NeonUser { id: string; email: string; emailVerified: boolean }
@@ -53,7 +54,7 @@ export class NeonAuth {
       throw error;
     }
   }
-  async sendCode(email: string) { await this.call('email-otp/send-verification-otp', { email, type: 'sign-in' }); }
+  async sendCode(email: string) { requireAllowedEmail(this.config,email); await this.call('email-otp/send-verification-otp', { email, type: 'sign-in' }); }
 }
 
 /** Shared across instances. An email cannot be spammed or brute-forced by changing IP headers. */

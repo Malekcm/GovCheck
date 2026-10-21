@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
 
-export function NeonLogin({ onDone }: { onDone: () => void }) {
+export function NeonLogin({ onDone, allowedDomains=[] }: { onDone: () => void; allowedDomains?:string[] }) {
   const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[otp,setOtp]=useState('');
   const [mode,setMode]=useState<'code'|'password'|'reset'>('code');
   const [sent,setSent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
@@ -16,7 +16,7 @@ export function NeonLogin({ onDone }: { onDone: () => void }) {
   return <div style={{display:'grid',placeItems:'center',minHeight:'100vh'}}><div className="card" style={{padding:24,width:380,maxWidth:'95vw'}}>
     <div className="row"><img src="/favicon.svg" width={28} height={28} alt=""/><h1>GovCheck</h1></div>
     <p>{mode==='reset'?'Set or reset your password':mode==='code'?'Sign in with a code sent to your email':'Sign in with your password'}</p>
-    <p className="small muted">Your administrator must add you to the team before you can sign in.</p>
+    <p className="small muted">{allowedDomains.length?`Only invited ${allowedDomains.map(d=>`@${d}`).join(', ')} accounts can sign in.`:'Your administrator must add you to the team before you can sign in.'} Ask your administrator to invite you through Team Management.</p>
     <form onSubmit={async e=>{
       e.preventDefault();
       if(mode!=='password'&&!sent){await sendCode();return;}

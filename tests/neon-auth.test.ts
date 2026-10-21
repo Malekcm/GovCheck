@@ -45,6 +45,34 @@ async function setup() {
 }
 
 describe('Neon Auth with application membership',()=>{
+  it('requires the exact allowed email domain for invitations, codes, login, resets and existing sessions',async()=>{
+    const s=await setup();
+    await s.add('admin@savangroup.com','admin');await s.add('outsider@example.test');
+    const outsideSession=await s.login('outsider@example.test');
+    s.deps.config.allowedEmailDomains=['savangroup.com'];
+    const admin=await s.login('ADMIN@SAVANGROUP.COM');
+    s.provider.mockClear();
+    for(const email of ['outsider@example.test','person@savangroup.com.evil.test','person@sub.savangroup.com','savangroup.com@evil.test']){
+      expect((await s.request('/api/auth/code',{email})).status).toBe(403);
+      expect((await s.request('/api/auth/reset',{email})).status).toBe(403);
+      expect((await s.request('/api/auth/login',{email,otp:'123456'})).status).toBe(403);
+      expect((await s.request('/api/auth/login',{email,password:'valid-password'})).status).toBe(403);
+      expect((await s.request('/api/auth/password',{email,otp:'123456',password:'valid-password'})).status).toBe(403);
+    }
+    expect(s.provider).not.toHaveBeenCalled();
+    expect((await s.request('/api/company',undefined,outsideSession)).status).toBe(401);
+    expect((await s.request('/api/auth/code',{email:'not-invited@savangroup.com'})).status).toBe(200);
+    expect(s.sent).toEqual([]);
+    const outsiderId=(await s.db.one('SELECT user_id FROM team_members WHERE email=$1',['outsider@example.test']))!.user_id;
+    expect((await s.request(`/api/team/admin/members/${outsiderId}/resend`,{},admin)).status).toBe(403);
+    expect((await s.request('/api/team/admin/invite',{email:'other@external.test',name:'Outside',role:'member'},admin)).status).toBe(403);
+    expect((await s.request('/api/team/admin/invite',{email:'NEW@SAVANGROUP.COM',name:'Colleague',role:'member'},admin)).status).toBe(201);
+    expect(s.sent).toEqual(['new@savangroup.com']);
+    expect((await s.request('/api/auth/code',{email:'NEW@SAVANGROUP.COM'})).status).toBe(200);
+    expect((await (await s.request('/api/auth/me',undefined,admin)).json() as any).allowedEmailDomains).toEqual(['savangroup.com']);
+    s.deps.config.bootstrapAdminEmail='outside@external.test';
+    await expect(bootstrapAdmin(s.deps)).rejects.toThrow('limited to invited');
+  });
   it('bootstraps an allowlisted administrator once, resumes delivery, and binds a verified Neon subject to a stable UUID',async()=>{
     const {db,deps,sent,login,request,users}=await setup();
     await bootstrapAdmin(deps);await bootstrapAdmin(deps);

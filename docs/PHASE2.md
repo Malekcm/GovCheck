@@ -26,6 +26,10 @@ Application sessions use a random HttpOnly SameSite cookie; only its hash is sto
 
 ## Permissions and collaboration
 
+Production sets `GOVCHECK_ALLOWED_EMAIL_DOMAINS=savangroup.com`. GovCheck rejects invitations, sign-in code requests, logins and password recovery for other domains before calling the provider. Exact matching is case-insensitive; subdomains and lookalike suffixes do not qualify. The restriction also applies to previously issued GovCheck sessions. An invited, active membership is still required: a Savan email alone never grants access. Administrators add emails through **Team Management → Invite a colleague**, choose the person's role, and send the invitation. Share the GovCheck URL; colleagues use the newest emailed code. Admins can resend codes or deactivate access from the member list.
+
+This is a GovCheck authorization and mail-request boundary, not a claim that Neon's public managed identity endpoint supports domain-restricted registration. Directly creating a Neon identity does not create team membership or an application session. Only GovCheck's authenticated server accesses the procurement database.
+
 | Role | Access |
 | --- | --- |
 | Admin | Team invitations and membership, source/company administration, all team work |
