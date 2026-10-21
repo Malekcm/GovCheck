@@ -94,8 +94,15 @@ export function createApp(deps: AppDeps): Hono {
     await next();
   });
 
-  if (config.teamAuthEnabled && config.nodeEnv === 'production' && (new URL(config.appBaseUrl).protocol !== 'https:' || !config.supabaseUrl?.startsWith('https://'))) throw new Error('Production team authentication requires HTTPS application and Supabase URLs.');
-  if (config.teamAuthEnabled && (!config.supabaseUrl || !config.supabasePublishableKey || !config.supabaseServiceKey || config.sessionSecret.length < 32)) throw new Error('Team authentication requires Supabase URL, publishable key, service key and a SESSION_SECRET of at least 32 characters.');
+  if (config.teamAuthEnabled) {
+    const providerUrl = config.teamAuthProvider === 'neon' ? config.neonAuthUrl : config.supabaseUrl;
+    if (config.nodeEnv === 'production' && (new URL(config.appBaseUrl).protocol !== 'https:' || !providerUrl?.startsWith('https://'))) throw new Error('Production team authentication requires HTTPS application and authentication URLs.');
+    if (config.sessionSecret.length < 32 || (config.teamAuthProvider === 'neon' ? !config.neonAuthUrl : (!config.supabaseUrl || !config.supabasePublishableKey || !config.supabaseServiceKey))) throw new Error('Configure the selected authentication provider and a SESSION_SECRET of at least 32 characters.');
+    if (config.teamAuthProvider === 'neon' && config.nodeEnv === 'production') {
+      const url = new URL(config.neonAuthUrl!);
+      if (!url.hostname.endsWith('.neon.tech') || url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/auth')) throw new Error('NEON_AUTH_URL must be the branch managed authentication endpoint.');
+    }
+  }
   app.use('/api/*', async (c, next) => {
     if (config.teamAuthEnabled && !['GET','HEAD'].includes(c.req.method)) {
       const origin = c.req.header('Origin');

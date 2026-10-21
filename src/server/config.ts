@@ -7,6 +7,8 @@ export interface AppConfig {
     testMaxRequests: number; autoSync: boolean; monthlyLimit: number;
   };
   teamAuthEnabled: boolean;
+  teamAuthProvider: 'neon' | 'supabase';
+  neonAuthUrl?: string;
   supabaseUrl?: string;
   supabasePublishableKey?: string;
   supabaseServiceKey?: string;
@@ -113,6 +115,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       monthlyLimit: Math.max(0, int(env.TANGO_MONTHLY_REQUEST_LIMIT, 1000)),
     },
     teamAuthEnabled: bool(env.GOVCHECK_TEAM_AUTH_ENABLED, false),
+    teamAuthProvider: env.GOVCHECK_AUTH_PROVIDER === 'neon' ? 'neon' : 'supabase',
+    neonAuthUrl: nonEmpty(env.NEON_AUTH_URL),
     supabaseUrl: nonEmpty(env.SUPABASE_URL),
     supabasePublishableKey: nonEmpty(env.SUPABASE_PUBLISHABLE_KEY),
     supabaseServiceKey: nonEmpty(env.SUPABASE_SERVICE_ROLE_KEY),

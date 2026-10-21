@@ -9,7 +9,8 @@ export function TeamPage() {
   const members=useQuery({queryKey:['team-members'],queryFn:()=>api.get<any[]>('/api/team/members')});
   const me=useQuery({queryKey:['me'],queryFn:()=>api.get<any>('/api/auth/me')});
   const [email,setEmail]=useState(''),[name,setName]=useState(''),[role,setRole]=useState('member');
-  const invite=useMutation({mutationFn:()=>api.post('/api/team/admin/invite',{email,name,role}),onSuccess:()=>{setEmail('');setName('');qc.invalidateQueries({queryKey:['team-members']});toast('Invitation sent.');}});
+  const invite=useMutation({mutationFn:()=>api.post<{message?:string}>('/api/team/admin/invite',{email,name,role}),onSuccess:(result)=>{setEmail('');setName('');qc.invalidateQueries({queryKey:['team-members']});toast(result.message??'Invitation sent.');}});
+  const resend=useMutation({mutationFn:(id:string)=>api.post(`/api/team/admin/members/${id}/resend`),onSuccess:()=>toast('Sign-in code sent. Open GovCheck and enter the email code.')});
   const update=useMutation({mutationFn:(m:any)=>api.put(`/api/team/admin/members/${m.user_id}`,{name:m.name,role:m.role,active:m.active}),onSuccess:()=>{qc.invalidateQueries({queryKey:['team-members']});toast('Team member updated.');}});
   if(me.data?.user?.role!=='admin') return <p>Administrator access required.</p>;
   return <><h1>Team Management</h1><Card title="Invite a colleague"><form onSubmit={e=>{e.preventDefault();invite.mutate();}} className="row">
@@ -18,11 +19,12 @@ export function TeamPage() {
     <label className="field">Role<select value={role} onChange={e=>setRole(e.target.value)}>{['admin','manager','member','viewer'].map(r=><option key={r}>{r}</option>)}</select></label>
     <button className="btn primary" disabled={invite.isPending}>Send invitation</button>
   </form>{invite.error&&<ErrorBox error={invite.error}/>}</Card>
-    <Card title="Team members">{members.isLoading&&<Loading/>}{members.error&&<ErrorBox error={members.error}/>}{update.error&&<ErrorBox error={update.error}/>}
+    <Card title="Team members">{me.data?.authProvider==='neon'&&<p>Invite colleagues, then share this site's address. They can enter their emailed code or request a fresh code on the sign-in page.</p>}{members.isLoading&&<Loading/>}{members.error&&<ErrorBox error={members.error}/>}{update.error&&<ErrorBox error={update.error}/>}{resend.error&&<ErrorBox error={resend.error}/>}
       {(members.data??[]).map(m=><div key={`${m.user_id}-${m.name}-${m.role}-${m.active}`} className="row" style={{marginBottom:12}}>
         <label className="field">Name<input defaultValue={m.name} disabled={update.isPending} onBlur={e=>{if(e.target.value!==m.name)update.mutate({...m,name:e.target.value});}}/></label><span>{m.email}</span>
         <label className="field">Role<select value={m.role} disabled={update.isPending} onChange={e=>update.mutate({...m,role:e.target.value})}>{['admin','manager','member','viewer'].map(r=><option key={r}>{r}</option>)}</select></label>
         <button className="btn" disabled={update.isPending} onClick={()=>update.mutate({...m,active:!m.active})}>{m.active?'Deactivate':'Activate'}</button>
+        {me.data?.authProvider==='neon'&&m.active&&<button className="btn" disabled={resend.isPending} onClick={()=>resend.mutate(m.user_id)}>Resend sign-in code</button>}
       </div>)}
     </Card></>;
 }

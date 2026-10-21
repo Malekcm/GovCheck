@@ -23,6 +23,22 @@ export async function assignmentState(db: Db, id: string) {
     history: await db.query('SELECT h.*,m.name AS actor_name FROM assignment_history h LEFT JOIN team_members m ON m.user_id=h.actor_id WHERE opportunity_id=$1 ORDER BY created_at DESC LIMIT 50', [id]) };
 }
 export function registerAssignmentRoutes(app: Hono, deps: AppDeps) {
+  app.post('/api/opportunities/:id/claim', async c => {
+    const id=z.uuid().parse(c.req.param('id')),user=actor(c)!;
+    await deps.db.tx(async tx=>{
+      const opp=await tx.one('SELECT merged_into_id FROM opportunities WHERE id=$1 FOR UPDATE',[id]);
+      if(!opp||opp.merged_into_id)throw new HttpProblem(409,'Opportunity changed. Reload the surviving profile.');
+      const rows=await tx.query('SELECT * FROM opportunity_assignments WHERE opportunity_id=$1 AND active',[id]);
+      if(rows.some(row=>row.assignment_role==='owner'&&row.user_id===user.user_id))return;
+      if(rows.some(row=>row.assignment_role==='owner'))throw new HttpProblem(409,'This opportunity already has an owner. Ask a manager to add you as a collaborator.');
+      const before=rows;
+      await tx.query('UPDATE opportunity_assignments SET active=false,version=version+1 WHERE opportunity_id=$1 AND user_id=$2 AND active',[id,user.user_id]);
+      await tx.query("INSERT INTO opportunity_assignments(opportunity_id,user_id,assignment_role,assigned_by) VALUES ($1,$2,'owner',$2)",[id,user.user_id]);
+      await tx.query('UPDATE opportunities SET assignment_revision=assignment_revision+1 WHERE id=$1',[id]);
+      await tx.query('INSERT INTO assignment_history(opportunity_id,actor_id,request_id,changes) VALUES ($1,$2,gen_random_uuid(),$3::jsonb)',[id,user.user_id,json({type:'self_claim',before,request:[{userId:user.user_id,role:'owner',status:'Not Started',nextAction:null,dueDate:null}]})]);
+    });
+    return c.json(await assignmentState(deps.db,id));
+  });
   app.put('/api/opportunities/:id/assignment-progress/:assignmentId', async c => {
     const b = Assignment.omit({ userId:true,role:true }).parse(await readJson(c));
     const id=z.uuid().parse(c.req.param('id')),assignmentId=z.uuid().parse(c.req.param('assignmentId'));

@@ -14,6 +14,7 @@ export function Assignments({id}:{id:string}) {
   const save=useMutation({mutationFn:(assignments:any[])=>api.put(`/api/opportunities/${id}/assignments`,{requestId:crypto.randomUUID(),revision:state.data.revision,assignments}),
     onSuccess:data=>{qc.setQueryData(queryKey,data);qc.invalidateQueries({queryKey:['workload']});toast('Assignments saved.');},onError:()=>{qc.invalidateQueries({queryKey});}});
   const progress=useMutation({mutationFn:({assignmentId,...change}:any)=>api.put(`/api/opportunities/${id}/assignment-progress/${assignmentId}`,change),onSuccess:()=>{qc.invalidateQueries({queryKey});qc.invalidateQueries({queryKey:['workload']});toast('Progress saved.');}});
+  const claim=useMutation({mutationFn:()=>api.post(`/api/opportunities/${id}/claim`),onSuccess:()=>{qc.invalidateQueries();toast('Assigned to you. You can now add tags, notes and progress.');},onError:()=>qc.invalidateQueries({queryKey})});
   if(!team)return null;
   const rows=state.data?.assignments??[];
   const normalized=rows.map((a:any)=>({userId:a.user_id,role:a.assignment_role,status:a.status,nextAction:a.next_action,dueDate:a.due_date}));
@@ -23,7 +24,8 @@ export function Assignments({id}:{id:string}) {
     else progress.mutate({assignmentId:row.id,status:values.status??row.status,nextAction:values.nextAction===undefined?row.next_action:values.nextAction,dueDate:values.dueDate===undefined?row.due_date:values.dueDate});
   };
   return <Card id="assignments" title="Opportunity ownership and collaboration">
-    {state.isLoading&&<Loading/>}{state.error&&<ErrorBox error={state.error}/>}{save.error&&<ErrorBox error={save.error}/>}{progress.error&&<ErrorBox error={progress.error}/>}
+    {state.isLoading&&<Loading/>}{state.error&&<ErrorBox error={state.error}/>}{save.error&&<ErrorBox error={save.error}/>}{progress.error&&<ErrorBox error={progress.error}/>}{claim.error&&<ErrorBox error={claim.error}/>}
+    {state.data&&me.data?.user?.role!=='viewer'&&!rows.some((row:any)=>row.assignment_role==='owner')&&<button className="btn primary" disabled={claim.isPending} onClick={()=>claim.mutate()}>Assign to me</button>}
     {manager&&state.data&&<div className="row"><label className="field">Primary Owner<select disabled={save.isPending} value={rows.find((a:any)=>a.assignment_role==='owner')?.user_id??''} onChange={e=>{
       const user=e.target.value;save.mutate([...normalized.filter((a:any)=>a.role!=='owner'&&a.userId!==user),...(user?[{...(normalized.find((a:any)=>a.userId===user)??add(user,'owner')),role:'owner'}]:[])]);
     }}><option value="">Unassigned</option>{members.data?.filter(m=>m.active).map(m=><option key={m.user_id} value={m.user_id}>{m.name} ({m.email})</option>)}</select></label>

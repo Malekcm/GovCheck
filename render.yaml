@@ -56,6 +56,10 @@ services:
         generateValue: true
       - key: GOVCHECK_TEAM_AUTH_ENABLED
         value: "false"
+      - key: GOVCHECK_AUTH_PROVIDER
+        value: "neon"
+      - key: NEON_AUTH_URL
+        sync: false
       - key: APP_BASE_URL
         sync: false
       - key: SUPABASE_URL

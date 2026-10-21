@@ -5,6 +5,7 @@ import type { AppConfig } from '../config';
 import type { AppDeps } from '../app';
 import { HttpProblem } from '../app';
 import { getCookie } from 'hono/cookie';
+import { NeonAuth } from './neon';
 
 export type Role = 'admin' | 'manager' | 'member' | 'viewer';
 export interface Actor { user_id: string; organization_id: string; email: string; name: string; role: Role; active: boolean }
@@ -38,6 +39,15 @@ export async function currentActor(c: Context, deps: AppDeps): Promise<Actor | u
     if (!member) return;
     let credentials:any;
     try { credentials=unseal(deps.config.sessionSecret,row.credentials); } catch { return; }
+    if (deps.config.teamAuthProvider === 'neon') {
+      if (credentials.provider !== 'neon') return;
+      const verified = await new NeonAuth(deps.config).verify(credentials);
+      if (!verified) return;
+      const identity = await tx.one('SELECT auth_provider,auth_subject FROM team_members WHERE user_id=$1', [member.user_id]);
+      if (identity?.auth_provider !== 'neon' || identity.auth_subject !== verified.user.id || verified.user.email.toLowerCase() !== member.email.toLowerCase()) return;
+      if (verified.credentials.cookie !== credentials.cookie) await tx.query('UPDATE team_sessions SET credentials=$2 WHERE id=$1', [row.id, seal(deps.config.sessionSecret, verified.credentials)]);
+      return member;
+    }
     const client = authClient(deps.config);
     if (credentials.expires_at * 1000 < Date.now() + 60_000) {
       const refreshed = await client.auth.refreshSession({ refresh_token: credentials.refresh_token });
@@ -65,6 +75,7 @@ export async function authorize(c: Context, deps: AppDeps, user: Actor) {
   if (/^\/api\/(sources|sync|company|capabilities|tango\/(test|clear-auth-block)|export)/.test(path)) throw new HttpProblem(403, 'Administrator access required.');
   if (user.role === 'viewer') throw new HttpProblem(403, 'View-only account.');
   if (user.role === 'manager') return;
+  if (/^\/api\/opportunities\/[0-9a-f-]{36}\/claim$/i.test(path) && c.req.method === 'POST') return;
   const match = path.match(/^\/api\/opportunities\/([0-9a-f-]{36})\/(capture|decision|notes|tags|assignment-progress\/[^/]+|research(?:\/.*)?)$/i);
   let id = match?.[1];
   if (/^\/api\/notes\//.test(path)) id = (await deps.db.one('SELECT opportunity_id FROM user_notes WHERE id::text=$1', [path.split('/').at(-1)]))?.opportunity_id;
