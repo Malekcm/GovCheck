@@ -11,7 +11,8 @@ services:
     runtime: docker
     plan: free
     healthCheckPath: /api/health
-    autoDeploy: true
+    # Release deployment is a separate explicit action after a tested main merge.
+    autoDeploy: false
     envVars:
       - key: NODE_ENV
         value: production
@@ -31,6 +32,18 @@ services:
         sync: false
       - key: SAM_API_KEY
         sync: false
+      - key: TANGO_API_KEY
+        sync: false
+      - key: TANGO_ENABLED
+        value: "false"
+      - key: TANGO_AUTO_SYNC
+        value: "false"
+      - key: TANGO_INTERNAL_DAILY_CAP
+        value: "80"
+      - key: TANGO_PROVIDER_RESERVE
+        value: "20"
+      - key: TANGO_MANUAL_RESERVE
+        value: "10"
       - key: SAM_DAILY_REQUEST_LIMIT
         value: "10"
       - key: ANTHROPIC_API_KEY

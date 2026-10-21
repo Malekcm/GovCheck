@@ -8,6 +8,8 @@ import { dueDetails, runDueWorkNow } from './pipeline/scheduler';
 import { postProcess, runAllSources, runConnector } from './pipeline/sync';
 import { loadCompanyContext } from './scoring/profile';
 import { retrainAndRescore, scoreMany } from './scoring/run';
+import { TangoClient, previewTango } from './connectors/tango';
+import { TangoBudget } from './pipeline/tangoBudget';
 
 /**
  * Command-line entry points (useful for cron jobs on the host and first-time imports):
@@ -42,6 +44,24 @@ async function main() {
   const { log, db } = deps;
   try {
     switch (cmd) {
+      case 'tango': {
+        if (args[0] === 'status') {
+          console.log(JSON.stringify(await new TangoBudget(db, deps.config.tango).status(), null, 2));
+          break;
+        }
+        const resource = flag(args, '--resource') ?? 'forecasts';
+        const filter = flag(args, '--filter') ?? (resource === 'forecasts' ? 'agency' : 'search');
+        const value = flag(args, '--value') ?? (resource === 'forecasts' ? 'DOT' : 'technology');
+        const plan = previewTango({ resource, filters: { [filter]: value }, limit: 5, maxPages: 1 });
+        if (!flag(args, '--live-smoke')) {
+          console.log(JSON.stringify(plan, null, 2)); // dry-run: no provider calls
+          break;
+        }
+        if (flag(args, '--acknowledge-request-cost') !== 'true') throw new Error('Live smoke testing requires --acknowledge-request-cost=true.');
+        const result = await new TangoClient(db, deps.config).research(plan.query, plan.fingerprint, 'test');
+        console.log(JSON.stringify({ endpoint: plan.endpoint, requests: result.requests, records: result.records.length, providerRemaining: result.budget.providerRemaining, testUsed: result.budget.testUsed, outcome: 'validated' }));
+        break;
+      }
       case 'migrate':
         log.info('Database migrated and seeded.');
         break;

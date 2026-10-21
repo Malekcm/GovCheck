@@ -42,6 +42,10 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DATABASE_SSL_CA_BASE64: ${{ secrets.DATABASE_SSL_CA_BASE64 }}
       SAM_API_KEY: ${{ secrets.SAM_API_KEY }}
+      # Tango is manual-only pending explicit scheduling and persistence authorization.
+      # Do not add TANGO_API_KEY here until scheduled use is approved.
+      TANGO_ENABLED: "false"
+      TANGO_AUTO_SYNC: "false"
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       SAM_DAILY_REQUEST_LIMIT: ${{ vars.SAM_DAILY_REQUEST_LIMIT || '10' }}
       CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}

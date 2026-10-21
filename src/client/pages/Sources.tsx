@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { date, relative, titleize } from '../format';
 import { Card, ErrorBox, Loading, Modal, toast } from '../components/ui';
+import { TangoResearch } from '../components/TangoResearch';
 
 const HEALTH_LABEL: Record<string, string> = { healthy: 'Connected', degraded: 'Degraded', error: 'Error', not_configured: 'Not configured', disabled: 'Disabled', unknown: 'Not yet run' };
 
@@ -396,7 +397,7 @@ export function SourcesPage() {
       <div className="page-head">
         <div>
           <h1>Sources & sync</h1>
-          <p>GovCheck keeps accumulated intelligence in its database. Sources are checked on a schedule and only new or changed records are processed. Each connector runs in isolation — a broken source is marked Degraded/Error and never blocks the others. Raw records are stored verbatim and never deleted.</p>
+          <p>GovCheck keeps accumulated government-source intelligence in its database. Sources are checked on a schedule and only new or changed records are processed. Each connector runs in isolation — a broken source is marked Degraded/Error and never blocks the others. Tango and G2X research is retrieved only on request and stays transient.</p>
         </div>
         <div className="row">
           <button className="btn" onClick={() => setAdding(true)}>
@@ -408,6 +409,7 @@ export function SourcesPage() {
         </div>
       </div>
 
+      <TangoResearch />
       <div className="kpis" style={{ marginBottom: 12 }}>
         <div className="kpi">
           <div className="label">Data current as of</div>
