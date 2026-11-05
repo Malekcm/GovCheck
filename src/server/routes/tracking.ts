@@ -32,8 +32,26 @@ export const ResearchLeadInput = z
   })
   .strict();
 
+const G2X_REF = /^g2x:[0-9a-f-]{36}$/i;
+const isG2xLink = (u: string) => {
+  try {
+    const url = new URL(u);
+    return url.protocol === 'https:' && /(^|\.)g2x\.com$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
 export function registerTrackingRoutes(app: Hono, deps: AppDeps) {
   const { db } = deps;
+  /** Same rule as the capture / decision routes: managers, admins, or an active assignee (legacy single-user mode: allowed). */
+  const canEditOpportunity = async (c: any, oppId: string) => {
+    const user = actor(c);
+    if (!user) return true;
+    if (user.role === 'admin' || user.role === 'manager') return true;
+    if (user.role !== 'member') return false;
+    return !!(await db.one('SELECT 1 FROM opportunity_assignments WHERE opportunity_id = $1 AND user_id = $2 AND active', [oppId, user.user_id]));
+  };
   const id = (raw: string) => {
     const r = z.uuid().safeParse(raw);
     if (!r.success) throw new HttpProblem(404, 'Opportunity not found');
@@ -55,9 +73,11 @@ export function registerTrackingRoutes(app: Hono, deps: AppDeps) {
       .strict()
       .parse(await readJson(c));
     const user = actor(c)?.user_id ?? null;
-    // Members may start tracking anything, but only stop tracking work assigned to them.
-    if (!b.tracked && actor(c)?.role === 'member' && !(await db.one('SELECT 1 FROM opportunity_assignments WHERE opportunity_id = $1 AND user_id = $2 AND active', [oppId, user])))
-      throw new HttpProblem(403, 'Only an assignee or a manager can stop tracking this opportunity.');
+    // Members may start tracking anything. Untracking, and setting the decision / capture stage / priority,
+    // follow the same rule as the capture and decision routes: an assignee or a manager.
+    const editor = await canEditOpportunity(c, oppId);
+    if (!b.tracked && !editor) throw new HttpProblem(403, 'Only an assignee or a manager can stop tracking this opportunity.');
+    if ((b.decision || b.captureStage || b.priority) && !editor) throw new HttpProblem(403, 'Only an assignee or a manager can set the decision, capture stage or priority.');
     try {
       await setTracking(db, oppId, { tracked: b.tracked, actorId: user, requestId: b.requestId });
     } catch (err) {
@@ -79,7 +99,9 @@ export function registerTrackingRoutes(app: Hono, deps: AppDeps) {
     const b = ResearchLeadInput.parse(await readJson(c));
     if (b.provider === 'g2x' && !/(^|\.)g2x\.com$/i.test(new URL(b.sourceUrl).hostname)) throw new HttpProblem(400, 'A G2X research lead must link to the G2X record (g2x.com).');
     if (b.relateTo && !(await db.one('SELECT 1 FROM opportunities WHERE id = $1 AND merged_into_id IS NULL', [b.relateTo.opportunityId]))) throw new HttpProblem(404, 'Related opportunity not found');
-    const out = await createResearchLead(db, b, user?.user_id ?? null);
+    // A confirmed predecessor/successor link changes someone else's opportunity; without edit rights it is only suggested for review.
+    const relateConfirmed = b.relateTo ? await canEditOpportunity(c, b.relateTo.opportunityId) : false;
+    const out = await createResearchLead(db, { ...b, relateConfirmed }, user?.user_id ?? null);
     return c.json({ ...out, verification: 'research_lead', labels: ['Research lead', 'Not government verified', 'No official solicitation confirmed', `Source discovery: ${DISCOVERY_PROVIDERS[b.provider].label}`] }, out.created ? 201 : 200);
   });
 
@@ -98,6 +120,12 @@ export function registerTrackingRoutes(app: Hono, deps: AppDeps) {
       .strict()
       .parse(await readJson(c));
     if (b.decision !== 'dismissed' && !b.opportunityId) throw new HttpProblem(400, 'Choose the GovCheck opportunity this decision applies to.');
+    if (b.provider === 'g2x') {
+      if (!isG2xLink(b.recordRef) && !G2X_REF.test(b.recordRef)) throw new HttpProblem(400, 'A G2X decision must reference a g2x.com record link.');
+      if (b.recordUrl && !isG2xLink(b.recordUrl)) throw new HttpProblem(400, 'A G2X record link must be an HTTPS g2x.com URL.');
+    }
+    // Linking attaches discovery attribution to an opportunity, so it needs edit rights on that opportunity.
+    if (b.decision === 'linked' && b.opportunityId && !(await canEditOpportunity(c, b.opportunityId))) throw new HttpProblem(403, 'Only an assignee or a manager can link a discovery result to this opportunity.');
     await recordMatchDecision(db, { ...b, opportunityId: b.opportunityId, actorId: user?.user_id ?? null });
     return c.json({ ok: true });
   });

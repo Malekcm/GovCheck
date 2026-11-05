@@ -448,6 +448,27 @@ describe('dossier: dynamic source tabs, versions, source counts and filters', ()
     // Members cannot override unassigned opportunities.
     expect((await request('member', `/api/opportunities/${id}/overrides`, 'PUT', { field: 'naics_code', value: '1', note: 'nope' })).status).toBe(403);
   });
+  it('limits decision, capture fields, confirmed relationships and discovery links to assignees or managers', async () => {
+    const { db, request, ids } = await setup();
+    await ingestWith(db, samOpportunitiesAdapter, [samRecord(samItem())]);
+    const id = (await db.one<any>('SELECT id FROM opportunities'))!.id;
+    expect((await request('member', `/api/opportunities/${id}/track`, 'POST', { tracked: true, decision: 'pursue' })).status).toBe(403);
+    expect((await request('member', `/api/opportunities/${id}/track`, 'POST', { tracked: true, priority: 'high' })).status).toBe(403);
+    expect(await db.one('SELECT 1 FROM user_opportunity_decisions WHERE opportunity_id = $1', [id])).toBeNull();
+    expect((await request('manager', `/api/opportunities/${id}/track`, 'POST', { tracked: true, decision: 'pursue', priority: 'high' })).status).toBe(200);
+    // An unassigned member's predecessor link is only a suggestion.
+    const lead = { title: 'Successor lead', sourceUrl: 'https://g2x.com/app/opportunities/forecast/cccccccc-0000-4000-8000-000000000003', provider: 'g2x', relateTo: { opportunityId: id, type: 'predecessor' }, confirmUserAuthored: true };
+    expect((await request('member', '/api/research-leads', 'POST', lead)).status).toBe(201);
+    expect(await db.one<any>(`SELECT relationship_type, status FROM opportunity_relationships WHERE from_opportunity_id = $1`, [id])).toMatchObject({ relationship_type: 'possible_predecessor', status: 'suggested' });
+    // G2X decisions must reference g2x.com, and linking requires edit rights.
+    const ref = 'https://g2x.com/app/opportunities/sam/dddddddd-0000-4000-8000-000000000004';
+    expect((await request('member', '/api/discovery/decision', 'POST', { provider: 'g2x', recordRef: 'https://evil.example/x', opportunityId: id, decision: 'separate' })).status).toBe(400);
+    expect((await request('member', '/api/discovery/decision', 'POST', { provider: 'g2x', recordRef: ref, recordUrl: 'https://evil.example/x', opportunityId: id, decision: 'separate' })).status).toBe(400);
+    expect((await request('member', '/api/discovery/decision', 'POST', { provider: 'g2x', recordRef: ref, recordUrl: ref, opportunityId: id, decision: 'linked' })).status).toBe(403);
+    await db.query(`INSERT INTO opportunity_assignments (opportunity_id, user_id, assignment_role) VALUES ($1,$2,'owner')`, [id, ids.member]);
+    expect((await request('member', '/api/discovery/decision', 'POST', { provider: 'g2x', recordRef: ref, recordUrl: ref, opportunityId: id, decision: 'linked' })).status).toBe(200);
+    expect(await db.one(`SELECT 1 FROM opportunity_discovery WHERE opportunity_id = $1 AND provider = 'g2x'`, [id])).toBeTruthy();
+  });
   it('members may track, but only assignees or managers may untrack', async () => {
     const { db, request } = await setup();
     await ingestWith(db, samOpportunitiesAdapter, [samRecord(samItem())]);

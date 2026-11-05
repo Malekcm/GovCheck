@@ -77,6 +77,8 @@ export interface LeadInput {
   naics?: string | null;
   track?: boolean;
   relateTo?: { opportunityId: string; type: 'predecessor' | 'successor' | 'related' } | null;
+  /** True only when the requester may edit the related opportunity; otherwise the link is a suggestion for review. */
+  relateConfirmed?: boolean;
 }
 
 /**
@@ -130,7 +132,20 @@ export async function createResearchLead(db: Db, input: LeadInput, actorId: stri
     await tx.query(`INSERT INTO user_tags (opportunity_id, tag) VALUES ($1,'research-lead') ON CONFLICT DO NOTHING`, [id]);
     await recomputeOpportunity(tx, id, { priorities: new Map([[RESEARCH_LEAD_CONNECTOR, 95], ['user', 0]]), isNew: true });
     if (input.track !== false) await setTracking(tx, id, { tracked: true, actorId, reason: 'Tracked as research lead' });
-    if (input.relateTo) await upsertRelationship(tx, input.relateTo.type === 'successor' ? id : input.relateTo.opportunityId, input.relateTo.type === 'successor' ? input.relateTo.opportunityId : id, input.relateTo.type === 'related' ? 'related' : 'predecessor', 1, 'manual', [`Marked by user while tracking a ${input.provider} research lead`], 'user');
+    if (input.relateTo) {
+      const [from, to] = input.relateTo.type === 'successor' ? [id, input.relateTo.opportunityId] : [input.relateTo.opportunityId, id];
+      const confirmed = !!input.relateConfirmed;
+      await upsertRelationship(
+        tx,
+        from,
+        to,
+        input.relateTo.type === 'related' ? 'related' : confirmed ? 'predecessor' : 'possible_predecessor',
+        confirmed ? 1 : 0.8,
+        'manual',
+        [`${confirmed ? 'Marked' : 'Suggested'} by a team member while tracking a ${input.provider} research lead`],
+        confirmed ? 'user' : 'system',
+      );
+    }
     await suggestLeadMatches(tx, id);
     return { opportunityId: id, created: true };
   });
