@@ -77,6 +77,8 @@ export async function authorize(c: Context, deps: AppDeps, user: Actor) {
   if (user.role === 'viewer') throw new HttpProblem(403, 'View-only account.');
   if (user.role === 'manager') return;
   if (/^\/api\/opportunities\/[0-9a-f-]{36}\/claim$/i.test(path) && c.req.method === 'POST') return;
+  // Any member may start tracking a discovered opportunity, add a research lead, or record a match decision.
+  if (c.req.method === 'POST' && (/^\/api\/opportunities\/[0-9a-f-]{36}\/track$/i.test(path) || path === '/api/research-leads' || path === '/api/discovery/decision')) return;
   const match = path.match(/^\/api\/opportunities\/([0-9a-f-]{36})\/(capture|decision|notes|tags|assignment-progress\/[^/]+|research(?:\/.*)?)$/i);
   let id = match?.[1];
   if (/^\/api\/notes\//.test(path)) id = (await deps.db.one('SELECT opportunity_id FROM user_notes WHERE id::text=$1', [path.split('/').at(-1)]))?.opportunity_id;

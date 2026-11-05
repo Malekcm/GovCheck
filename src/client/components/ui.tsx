@@ -79,6 +79,9 @@ const SOURCE_SHORT: Record<string, string> = {
   dhs_apfs: 'DHS forecast',
   sba_subnet: 'SUBNet',
   grants_gov: 'Grants.gov',
+  user_research_lead: 'Research lead',
+  g2x: 'G2X discovery',
+  tango: 'Tango discovery',
 };
 /** A 0–100 dimension with its factors on hover (attractiveness, confidence, priority). */
 export function Dimension({ label, value, factors, missing }: { label: string; value: number | null | undefined; factors?: { label: string; effect: number; detail: string }[]; missing?: string[] }) {

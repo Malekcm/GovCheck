@@ -18,6 +18,8 @@ export interface AppConfig {
   researchEstimatedCostUsd?: number;
   g2xEnabled: boolean;
   g2xClientId?: string;
+  /** Future licensed G2X importer. Stays off unless G2X grants written authorization for systematic storage. */
+  g2xLicensedImportEnabled: boolean;
   nodeEnv: string;
   port: number;
   appBaseUrl: string;
@@ -127,6 +129,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     researchEstimatedCostUsd: Number(env.RESEARCH_ESTIMATED_COST_USD) > 0 ? Number(env.RESEARCH_ESTIMATED_COST_USD) : undefined,
     g2xEnabled: bool(env.G2X_INTERACTIVE_RESEARCH_ENABLED, false),
     g2xClientId: nonEmpty(env.G2X_CLIENT_ID),
+    g2xLicensedImportEnabled: bool(env.G2X_LICENSED_IMPORT_ENABLED, false),
     nodeEnv,
     port: int(env.PORT, 8787),
     appBaseUrl: nonEmpty(env.APP_BASE_URL) ?? 'http://localhost:5173',

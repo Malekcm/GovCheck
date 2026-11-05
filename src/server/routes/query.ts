@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { IS_TRACKED_SQL } from '../pipeline/tracking';
 
 const csv = z
   .union([z.string(), z.array(z.string())])
@@ -61,6 +62,18 @@ export const OpportunityFilters = z.object({
   owner: z.string().max(120).optional(),
   tag: z.string().max(40).optional(),
   status: csv,
+  /** First-discovered source (connector id or discovery provider such as g2x). */
+  firstDiscovered: csv,
+  sourceCount: z.enum(['single', 'multi']).optional(),
+  minSources: num,
+  verification: csv,
+  tracked: bool,
+  pendingReview: bool,
+  /** A new source family was linked within N days (default 14). */
+  recentlyEnriched: bool,
+  /** Field values arrived from a source other than the one that first discovered it, within N days. */
+  newFromOtherSource: bool,
+  enrichedWithinDays: num,
   sort: z.enum(['best', 'fit', 'preference', 'attractiveness', 'confidence', 'deadline', 'newest', 'updated', 'value', 'agency', 'completeness', 'expiring', 'next_action']).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(500).optional(),
@@ -108,7 +121,20 @@ export function buildOpportunityQuery(f: OpportunityFiltersT, ctx: { lastVisit: 
   if (f.stage?.length) where.push(`o.stage = ANY(${p(f.stage)}::text[])`);
   if (f.opportunityClass?.length) where.push(`o.opportunity_class = ANY(${p(f.opportunityClass)}::text[])`);
   else if (!(f.includeGrants ?? ctx.includeGrantsDefault)) where.push(`o.opportunity_class <> 'grant'`);
-  if (f.source?.length) where.push(`o.connector_ids && ${p(f.source)}::text[]`);
+  if (f.source?.length) where.push(`(o.connector_ids && ${p(f.source)}::text[] OR EXISTS (SELECT 1 FROM opportunity_discovery dsc WHERE dsc.opportunity_id = o.id AND dsc.provider = ANY($${params.length}::text[])))`);
+  if (f.firstDiscovered?.length) where.push(`o.first_discovered_source = ANY(${p(f.firstDiscovered)}::text[])`);
+  if (f.sourceCount === 'single') where.push(`cardinality(o.connector_ids) <= 1`);
+  if (f.sourceCount === 'multi') where.push(`cardinality(o.connector_ids) > 1`);
+  if (f.minSources != null) where.push(`cardinality(o.connector_ids) >= ${p(f.minSources)}`);
+  if (f.verification?.length) where.push(`o.verification_status = ANY(${p(f.verification)}::text[])`);
+  if (f.tracked === true) where.push(IS_TRACKED_SQL);
+  if (f.tracked === false) where.push(`NOT ${IS_TRACKED_SQL}`);
+  if (f.pendingReview === true)
+    where.push(`EXISTS (SELECT 1 FROM opportunity_relationships pr WHERE pr.status = 'suggested' AND pr.relationship_type IN ('possible_duplicate','possible_same_procurement') AND (pr.from_opportunity_id = o.id OR pr.to_opportunity_id = o.id))`);
+  const enrichDays = f.enrichedWithinDays ?? 14;
+  if (f.recentlyEnriched === true) where.push(`EXISTS (SELECT 1 FROM opportunity_events ev WHERE ev.opportunity_id = o.id AND ev.event_type IN ('NEW_SOURCE','DISCOVERY_ATTRIBUTED') AND ev.detected_at >= now() - (${p(enrichDays)}::int * interval '1 day'))`);
+  if (f.newFromOtherSource === true)
+    where.push(`EXISTS (SELECT 1 FROM opportunity_field_values nf WHERE nf.opportunity_id = o.id AND nf.is_current AND nf.observed_at >= now() - (${p(enrichDays)}::int * interval '1 day') AND nf.connector_id IS DISTINCT FROM o.first_discovered_source AND nf.connector_id <> ALL(ARRAY['user','derived','ai']) AND nf.observed_at > o.first_seen_at + interval '1 minute')`);
   if (f.agencyId) where.push(`(o.agency_id = ${p(f.agencyId)} OR o.subagency_id = $${params.length})`);
   if (f.officeId) where.push(`o.office_id = ${p(f.officeId)}`);
   if (f.agency) where.push(`(o.department_name ILIKE ${p(`%${f.agency}%`)} OR o.subtier_name ILIKE $${params.length})`);
@@ -179,9 +205,14 @@ export const LIST_COLUMNS = `o.id, o.title, o.opportunity_class, o.stage, o.noti
   o.agency_id, o.subagency_id, o.office_id, o.naics_code, o.psc_code, o.set_aside_code, o.set_aside, o.value_low, o.value_high, o.value_provenance, o.value_label,
   o.response_deadline, o.posted_at, o.last_changed_at, o.first_seen_at, o.fit_score, o.preference_score, o.eligibility_status, o.connector_ids, o.data_completeness,
   o.has_documents, o.has_incumbent, o.incumbent_name, o.recompete_signal, o.place_state, o.place_city, o.contract_vehicle, o.performance_end, o.seen_status,
-  o.attractiveness_score, o.confidence_score, o.priority_score,
+  o.attractiveness_score, o.confidence_score, o.priority_score, o.verification_status, o.first_discovered_source, cardinality(o.connector_ids) AS source_families,
+  (SELECT array_agg(DISTINCT dsc.provider) FROM opportunity_discovery dsc WHERE dsc.opportunity_id = o.id) AS discovery_providers,
+  ${IS_TRACKED_SQL} AS tracked,
+  EXISTS (SELECT 1 FROM opportunity_relationships pr WHERE pr.status = 'suggested' AND pr.relationship_type IN ('possible_duplicate','possible_same_procurement') AND (pr.from_opportunity_id = o.id OR pr.to_opportunity_id = o.id)) AS pending_review,
   d.decision, d.reasons AS decision_reasons, cap.pursuit_stage, COALESCE((SELECT m.name FROM opportunity_assignments a JOIN team_members m ON m.user_id=a.user_id WHERE a.opportunity_id=o.id AND a.active AND a.assignment_role='owner' LIMIT 1),cap.owner) AS capture_owner, cap.next_action, cap.next_action_date`;
 
-/** Opportunities the team is actively following: Pursue / Interested / Watch, or in an active capture stage. Alias `o`. */
-export const TRACKED_SQL = `(EXISTS (SELECT 1 FROM user_opportunity_decisions td WHERE td.opportunity_id = o.id AND td.is_current AND td.decision IN ('pursue','interested','watch'))
-  OR EXISTS (SELECT 1 FROM opportunity_capture tk WHERE tk.opportunity_id = o.id AND tk.pursuit_stage NOT IN ('discovered','lost','no_bid')))`;
+/**
+ * Opportunities the team is actively following. Alias `o`. An explicit Track / Untrack wins; without
+ * one, a Pursue / Interested / Watch decision or an active capture stage counts (see pipeline/tracking).
+ */
+export const TRACKED_SQL = IS_TRACKED_SQL;

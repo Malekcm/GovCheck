@@ -3,7 +3,8 @@ import { Assignments } from '../components/Assignments';
 import { CaptureResearch } from '../components/CaptureResearch';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { CompareSources, PotentialMatches, SourceTab, SummaryPanel, TrackingPanel } from '../components/Dossier';
 import DOMPurify from 'dompurify';
 import { AlertTriangle, CheckCircle2, ExternalLink, FileText, RefreshCw, Sparkles, XCircle } from 'lucide-react';
 import { CLASS_LABELS, EVENT_LABELS, PROVENANCE_RANK, PURSUIT_STAGES, PURSUIT_STAGE_LABELS, SCORE_COMPONENT_LABELS, STAGE_LABELS, setAsideLabel, type Provenance, type ScoreComponent, type Stage } from '../../shared/domain';
@@ -13,6 +14,8 @@ import { DecisionControl } from '../components/DecisionControl';
 import { Card, ClassBadge, Deadline, Dimension, EligibilityBadge, Empty, ErrorBox, ListInput, Loading, Modal, Prov, ProvenanceLegend, Score, SourceBadges, StageBadge, Term, toast } from '../components/ui';
 
 const SECTIONS: [string, string][] = [
+  ['tracking', 'Tracking'],
+  ['consolidated', 'Consolidated summary'],
   ['actions', 'Next actions'],
   ['assignments', 'Owner and collaborators'],
   ['research', 'Initial research'],
@@ -169,6 +172,15 @@ export function OpportunityDetailPage() {
   const q = useQuery({ queryKey: ['opportunity', id], queryFn: () => api.get<any>(`/api/opportunities/${id}`) });
   const [refreshResult, setRefreshResult] = useState<any[] | null>(null);
   const [linking, setLinking] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') ?? 'summary';
+  const openTab = (key: string) => {
+    const next = new URLSearchParams(params);
+    if (key === 'summary') next.delete('tab');
+    else next.set('tab', key);
+    setParams(next, { replace: true });
+    window.scrollTo({ top: 0 });
+  };
 
   useEffect(() => {
     if (id) api.post(`/api/opportunities/${id}/view`).catch(() => undefined);
@@ -232,7 +244,12 @@ export function OpportunityDetailPage() {
 
   return (
     <div>
-      {o.is_signal && (
+      {o.verification_status === 'research_lead' && (
+        <div className="signal-banner">
+          <AlertTriangle size={16} /> RESEARCH LEAD — NOT GOVERNMENT VERIFIED. No official solicitation confirmed{d.summary?.discovery?.firstDiscoveredLabel ? ` · Source discovery: ${d.summary.discovery.firstDiscoveredLabel}` : ''}.
+        </div>
+      )}
+      {o.is_signal && o.verification_status !== 'research_lead' && (
         <div className="signal-banner">
           <AlertTriangle size={16} /> INTELLIGENCE SIGNAL — NOT AN ACTIVE SOLICITATION. Derived from an expiring contract; no successor procurement has been found yet.
         </div>
@@ -344,6 +361,28 @@ export function OpportunityDetailPage() {
         )}
       </div>
 
+      <div className="tabs no-print" role="tablist" aria-label="Opportunity dossier" style={{ marginTop: 12 }}>
+        <button role="tab" aria-selected={tab === 'summary'} className={tab === 'summary' ? 'active' : ''} onClick={() => openTab('summary')}>
+          Summary
+        </button>
+        {(d.sourceTabs ?? []).map((t: any) => (
+          <button key={t.key} role="tab" aria-selected={tab === t.key} className={tab === t.key ? 'active' : ''} onClick={() => openTab(t.key)}>
+            {t.label}
+            {t.records.length > 1 ? ` (${t.records.length})` : ''}
+          </button>
+        ))}
+        {(d.compare?.columns?.length ?? 0) > 0 && (
+          <button role="tab" aria-selected={tab === 'compare'} className={tab === 'compare' ? 'active' : ''} onClick={() => openTab('compare')}>
+            Compare sources
+          </button>
+        )}
+      </div>
+      {tab === 'compare' && d.compare && <CompareSources id={o.id} compare={d.compare} />}
+      {tab !== 'summary' && tab !== 'compare' && (() => {
+        const t = (d.sourceTabs ?? []).find((x: any) => x.key === tab);
+        return t ? <SourceTab tab={t} opportunityId={o.id} /> : <Empty title="Source not linked">This source does not contribute to this opportunity.</Empty>;
+      })()}
+      {tab === 'summary' && (
       <div className="dossier">
         <nav className="toc no-print" aria-label="Sections">
           {SECTIONS.map(([k, l]) => (
@@ -353,6 +392,9 @@ export function OpportunityDetailPage() {
           ))}
         </nav>
         <div>
+          <TrackingPanel id={o.id} tracking={d.tracking} verification={o.verification_status} discovery={d.summary?.discovery} />
+          {d.summary && <SummaryPanel summary={d.summary} onOpenTab={openTab} />}
+          <PotentialMatches id={o.id} />
           <Card id="actions" title="Scores & recommended next actions">
             <div className="dims" style={{ marginBottom: 12 }}>
               <Dimension label="Company fit" value={o.fit_score} factors={components.map((c: any) => ({ label: SCORE_COMPONENT_LABELS[c.component as ScoreComponent] ?? c.component, effect: Number(c.points), detail: `${Number(c.points).toFixed(1)}/${c.max_points}` }))} />
@@ -1186,6 +1228,7 @@ export function OpportunityDetailPage() {
           <NotesAndTags oppId={o.id} notes={d.notes} tags={d.tags} />
         </div>
       </div>
+      )}
       {linking && <LinkModal oppId={o.id} onClose={() => setLinking(false)} />}
     </div>
   );

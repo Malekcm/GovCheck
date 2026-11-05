@@ -20,6 +20,7 @@ import { registerOpportunityRoutes } from './routes/opportunities';
 import { registerSourceRoutes } from './routes/sources';
 import { registerSearchRoutes } from './routes/search';
 import { registerTangoRoutes } from './routes/tango';
+import { registerTrackingRoutes } from './routes/tracking';
 
 export interface AppDeps {
   db: Db;
@@ -27,6 +28,8 @@ export interface AppDeps {
   http: HttpClient;
   log: Logger;
   budget: RequestBudget;
+  /** Test seam: transport for the G2X MCP client (defaults to global fetch). */
+  g2xFetch?: typeof fetch;
 }
 
 export class HttpProblem extends Error {
@@ -156,6 +159,7 @@ export function createApp(deps: AppDeps): Hono {
   registerCompanyRoutes(app, deps);
   // BD routes first: static paths like /api/opportunities/export.xlsx must win over /api/opportunities/:id.
   registerBdRoutes(app, deps);
+  registerTrackingRoutes(app, deps);
   registerOpportunityRoutes(app, deps);
   registerIntelRoutes(app, deps);
   registerSourceRoutes(app, deps);

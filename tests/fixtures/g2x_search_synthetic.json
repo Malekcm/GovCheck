@@ -1,0 +1,66 @@
+{
+  "_comment": "Synthetic MCP tools/call result shaped like G2X opportunity_search. All values are invented test data; no G2X content is stored in this repository.",
+  "content": [
+    {
+      "type": "text",
+      "text": "Found 4 opportunities for “synthetic test”.\n1. Synthetic G2X Result Alpha (70RDAD-26-RFI-0042, Sources Sought): [G2X page](https://g2x.com/app/opportunities/sam/a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90)\nWhen you list these notices, give each one the G2X page its line lists.\nMore pages exist — call again with cursor \"SYNTHETICCURSOR123\".\n\n{\"kind\":\"opportunity_search\",\"query\":\"synthetic test\",\"status\":\"open\",\"rows\":[{\"record_type\":\"opportunity\",\"id\":\"a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90\",\"title\":\"Synthetic G2X Result Alpha\",\"notice_type\":\"Sources Sought\",\"solicitation_number\":\"70RDAD-26-RFI-0042\",\"response_deadline\":\"2026-11-20T17:00:00-05:00\",\"funding_agency\":\"HOMELAND SECURITY, DEPARTMENT OF\",\"naics\":\"541511\",\"set_aside\":null,\"record_url\":\"https://g2x.com/app/opportunities/sam/a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90\"}],\"total\":null,\"notes\":[\"More pages exist — call again with cursor \\\"SYNTHETICCURSOR123\\\".\"]}"
+    }
+  ],
+  "structuredContent": {
+    "kind": "opportunity_search",
+    "query": "synthetic test",
+    "status": "open",
+    "rows": [
+      {
+        "record_type": "opportunity",
+        "id": "a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90",
+        "title": "Synthetic G2X Result Alpha",
+        "notice_type": "Sources Sought",
+        "solicitation_number": "70RDAD-26-RFI-0042",
+        "response_deadline": "2026-11-20T17:00:00-05:00",
+        "funding_agency": "HOMELAND SECURITY, DEPARTMENT OF",
+        "naics": "541511",
+        "set_aside": null,
+        "record_url": "https://g2x.com/app/opportunities/sam/a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90"
+      },
+      {
+        "record_type": "opportunity",
+        "id": "bbbbbbbb-0000-4000-8000-000000000002",
+        "title": "Synthetic G2X Result Beta",
+        "notice_type": "Presolicitation",
+        "solicitation_number": "SYN-NEW-0002",
+        "response_deadline": "2026-12-01T13:00:00-06:00",
+        "funding_agency": "DEPT OF DEFENSE",
+        "naics": "541611",
+        "set_aside": null,
+        "record_url": "https://g2x.com/app/opportunities/sam/bbbbbbbb-0000-4000-8000-000000000002"
+      },
+      {
+        "record_type": "opportunity",
+        "id": "cccccccc-0000-4000-8000-000000000003",
+        "title": "Synthetic G2X Result Gamma Lead",
+        "notice_type": "Forecast",
+        "solicitation_number": null,
+        "response_deadline": null,
+        "funding_agency": "DEPT OF ENERGY",
+        "naics": "541519",
+        "set_aside": null,
+        "record_url": "https://g2x.com/app/opportunities/forecast/cccccccc-0000-4000-8000-000000000003"
+      },
+      {
+        "record_type": "opportunity",
+        "id": "dddddddd-0000-4000-8000-000000000004",
+        "title": "Synthetic G2X Result Delta",
+        "notice_type": "Sources Sought",
+        "solicitation_number": "70RDAD-26-RFI-0042",
+        "response_deadline": "2026-11-25T10:00:00-05:00",
+        "funding_agency": "DEPT OF AGRICULTURE",
+        "naics": "541511",
+        "set_aside": null,
+        "record_url": "https://g2x.com/app/opportunities/sam/dddddddd-0000-4000-8000-000000000004"
+      }
+    ],
+    "total": null,
+    "notes": ["More pages exist — call again with cursor \"SYNTHETICCURSOR123\"."]
+  }
+}

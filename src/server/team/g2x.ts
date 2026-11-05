@@ -5,6 +5,7 @@ import { HttpProblem, readJson, type AppDeps } from '../app';
 import { actor, digest, seal, unseal } from './security';
 import { assertPublicUrl } from '../lib/urlSafety';
 import { json } from '../db';
+import { registerG2xDiscoveryRoutes } from './g2xDiscovery';
 
 export const G2X_ENDPOINT = 'https://mcp.g2x.com/mcp/research';
 export const G2X_CAPABILITIES = { automatedRefreshAuthorized:false,persistenceAuthorized:false,teamSharingAuthorized:false } as const;
@@ -140,8 +141,9 @@ export class G2xClient {
   }
 }
 export function registerG2xRoutes(app:Hono,deps:AppDeps) {
-  const client=new G2xClient(deps);
+  const client=new G2xClient(deps,deps.g2xFetch??fetch);
   const enabled=()=>{if(!deps.config.g2xEnabled) throw new HttpProblem(503,'G2X interactive research is disabled pending account and integration authorization.');};
+  registerG2xDiscoveryRoutes(app,deps,client,enabled);
   app.get('/api/g2x/status',async c=>c.json({interactiveResearchEnabled:deps.config.g2xEnabled,...G2X_CAPABILITIES,connected:!!await deps.db.one('SELECT 1 FROM g2x_connections WHERE user_id=$1',[actor(c)!.user_id])}));
   app.post('/api/g2x/connect',async c=>{enabled();return c.json({url:await client.connect(actor(c)!.user_id)});});
   app.get('/api/g2x/callback',async c=>{

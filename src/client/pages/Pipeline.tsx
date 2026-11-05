@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { date, money, moneyRange } from '../format';
-import { Card, Deadline, DecisionBadge, Empty, ErrorBox, Loading, Prov, Score } from '../components/ui';
+import { Card, Deadline, DecisionBadge, Empty, ErrorBox, Loading, Prov, Score, SourceBadges } from '../components/ui';
 
 /** Capture pipeline: every opportunity with a capture plan or a pursue/partner decision, by pursuit stage. */
 export function PipelinePage() {
@@ -57,6 +57,8 @@ export function PipelinePage() {
                     <Score value={o.priority_score} label="Review priority" />
                     <DecisionBadge decision={o.decision} />
                     {o.capture_owner && <span className="muted">{o.capture_owner}</span>}
+                    {o.verification_status === 'research_lead' && <span className="badge warn">Research lead · unverified</span>}
+                    <SourceBadges ids={[...(o.connector_ids ?? []).filter((c: string) => c !== 'user_research_lead'), ...(o.discovery_providers ?? [])]} />
                   </div>
                   <div className="small muted" style={{ marginTop: 3 }}>
                     {o.subtier_name ?? o.department_name ?? ''}

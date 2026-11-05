@@ -17,6 +17,8 @@ import { getLastVisit, includeGrantsDefault } from './meta';
 import { EXPORT_COLUMNS } from './bd';
 import { buildOpportunityQuery, DECISION_JOIN, LIST_COLUMNS, OpportunityFilters } from './query';
 import { recommendActions } from '../scoring/actions';
+import { buildDossier } from '../pipeline/dossier';
+import { trackingState } from '../pipeline/tracking';
 
 // Debounced, single-flight preference retraining after decisions change.
 let retrainTimer: NodeJS.Timeout | null = null;
@@ -59,7 +61,7 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
     const page = f.page ?? 1;
     const total = await db.one<{ n: number }>(`SELECT count(*)::int AS n FROM opportunities o ${DECISION_JOIN} WHERE ${q.where}`, q.params);
     const items = await db.query(
-      `SELECT ${LIST_COLUMNS}, (SELECT count(*)::int FROM opportunity_events e WHERE e.opportunity_id = o.id AND e.detected_at > now() - interval '7 days' AND e.event_type NOT IN ('LIFECYCLE','NEW_OPPORTUNITY')) AS recent_changes
+      `SELECT ${LIST_COLUMNS}, (SELECT count(*)::int FROM opportunity_events e WHERE e.opportunity_id = o.id AND e.detected_at > now() - interval '7 days' AND e.event_type NOT IN ('LIFECYCLE','NEW_OPPORTUNITY','DISCOVERY_ATTRIBUTED')) AS recent_changes
        FROM opportunities o ${DECISION_JOIN} WHERE ${q.where} ORDER BY ${q.orderBy} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
       q.params,
     );
@@ -227,6 +229,11 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
     const capture = await db.one('SELECT * FROM opportunity_capture WHERE opportunity_id = $1', [id]);
     const currentDecision = (decisions as any[]).find((d) => d.is_current) ?? null;
     const recommendedActions = recommendActions({ opportunity: opp, documents, contacts, requirements, explanations, vendors, relationships, currentDecision, capture });
+    const dossier = await buildDossier(
+      db,
+      { opportunity: opp, sources, fieldValues: fieldValues as any, overrides, financials, dates, documents, awards, vendors, events, relationships, capture, currentDecision, recommendedActions, priorities },
+      { userId: actor(c)?.user_id ?? null },
+    );
 
     return c.json({
       lastUpdatedBy: await db.one("SELECT m.name,a.created_at FROM team_audit a JOIN team_members m ON m.user_id=a.actor_id WHERE a.path LIKE $1 AND a.path NOT LIKE '%/view' AND a.path NOT LIKE '%/research/preview' ORDER BY a.created_at DESC LIMIT 1", [`/api/opportunities/${id}/%`]),
@@ -237,6 +244,8 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
         UNION ALL SELECT o.id,o.title FROM opportunities o JOIN merged m ON o.merged_into_id=m.id
       ) SELECT cap.*,m.title FROM merged m JOIN opportunity_capture cap ON cap.opportunity_id=m.id`,[id]),
       recommendedActions,
+      ...dossier,
+      tracking: await trackingState(db, id),
       dimensions: (score as any)?.dimensions ?? null,
       sources,
       provenance,
@@ -328,7 +337,10 @@ export function registerOpportunityRoutes(app: Hono, deps: AppDeps) {
 
   app.put('/api/opportunities/:id/overrides', async (c) => {
     const id = await exists(c.req.param('id'));
-    const b = z.object({ field: z.enum(['response_deadline', 'set_aside_code', 'naics_code', 'contract_vehicle', 'performance_start', 'performance_end', 'title']), value: z.union([z.string(), z.number(), z.null()]), note: z.string().max(1000).nullable().optional() }).parse(await readJson(c));
+    const b = z
+      .object({ field: z.enum(['response_deadline', 'set_aside_code', 'naics_code', 'psc_code', 'contract_vehicle', 'performance_start', 'performance_end', 'title']), value: z.union([z.string(), z.number(), z.null()]), note: z.string().trim().max(1000).nullable().optional() })
+      .refine((x) => x.value === null || (x.note ?? '').length >= 3, { message: 'A reason is required to override a canonical field. All source values are preserved.', path: ['note'] })
+      .parse(await readJson(c));
     if (b.value === null) await db.query('DELETE FROM user_field_overrides WHERE opportunity_id = $1 AND field = $2', [id, b.field]);
     else
       await db.query(`INSERT INTO user_field_overrides (opportunity_id, field, value, note) VALUES ($1,$2,$3::jsonb,$4) ON CONFLICT (opportunity_id, field) DO UPDATE SET value = EXCLUDED.value, note = EXCLUDED.note`, [
