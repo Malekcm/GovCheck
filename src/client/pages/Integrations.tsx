@@ -5,6 +5,8 @@ import { ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import { date } from '../format';
 import { Card, ErrorBox, Modal, toast } from '../components/ui';
+import { SchemaForm } from '../components/SchemaForm';
+import { cleanArguments, fieldsOf, humanize, missingRequired } from '../components/schemaFields';
 
 const GROUPS: [string, string, string][] = [
   ['in_govcheck', 'Already in GovCheck', 'Matched to an existing GovCheck opportunity. Nothing new is created.'],
@@ -60,25 +62,19 @@ function GuidedSearch({ tools }: { tools: any[] }) {
   const readOnly = tools.filter((t) => t.annotations?.readOnlyHint === true);
   const [tool, setTool] = useState('');
   const guided = useQuery({ queryKey: ['g2x-guided', tool], queryFn: () => api.get<any>(`/api/g2x/guided${tool ? `?tool=${encodeURIComponent(tool)}` : ''}`) });
-  const [input, setInput] = useState('{}');
+  const [args, setArgs] = useState<Record<string, unknown>>({});
   const [result, setResult] = useState<any>(null);
   const [page, setPage] = useState(1);
   useEffect(() => {
     if (guided.data) {
-      setInput(JSON.stringify(guided.data.arguments ?? {}, null, 2));
+      setArgs(guided.data.arguments ?? {});
       if (!tool) setTool(guided.data.tool.name);
     }
   }, [guided.data, tool]);
+  const schema = guided.data?.tool.inputSchema;
+  const missing = missingRequired(fieldsOf(schema), args);
   const search = useMutation({
-    mutationFn: (cursor?: string) => {
-      let args: unknown;
-      try {
-        args = JSON.parse(input);
-      } catch {
-        throw new Error('Search arguments must be valid JSON.');
-      }
-      return api.post('/api/g2x/search', { tool, arguments: args, acknowledgeIndividualUse: true, ...(cursor ? { cursor } : {}) });
-    },
+    mutationFn: (cursor?: string) => api.post('/api/g2x/search', { tool, arguments: cleanArguments(args) ?? {}, acknowledgeIndividualUse: true, ...(cursor ? { cursor } : {}) }),
     onSuccess: (r, cursor) => {
       setResult(r);
       setPage((p) => (cursor ? p + 1 : 1));
@@ -87,7 +83,7 @@ function GuidedSearch({ tools }: { tools: any[] }) {
   const rerun = () => search.mutate(undefined);
   return (
     <Card title="Find opportunities in G2X">
-      <p className="small muted">Search arguments are generated from your company profile and checked against the live G2X tool schema. Edit them before searching. GovCheck fetches one page at a time, only when you ask.</p>
+      <p className="small muted">The fields below come from the search tool you choose. They start filled in from your company profile; change anything before searching. GovCheck fetches one page at a time, only when you ask.</p>
       <label className="field">
         Search tool
         <select value={tool} onChange={(e) => setTool(e.target.value)}>
@@ -101,22 +97,26 @@ function GuidedSearch({ tools }: { tools: any[] }) {
       {guided.error && <ErrorBox error={guided.error} />}
       {guided.data && (
         <div className="small">
-          {guided.data.mapped.length > 0 && <p>From your profile: {guided.data.mapped.map((m: any) => `${m.property} ← ${m.from}`).join(' · ')}</p>}
-          {guided.data.unsupported.length > 0 && <p className="muted">Not supported by this tool's schema: {guided.data.unsupported.join(', ')}</p>}
-          {guided.data.issues.length > 0 && <p style={{ color: 'var(--bad)' }}>Schema issues: {guided.data.issues.join('; ')}</p>}
-          <details>
-            <summary>Tool input schema</summary>
-            <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(guided.data.tool.inputSchema, null, 2)}</pre>
-          </details>
+          {guided.data.tool.description && <p className="muted">{guided.data.tool.description}</p>}
+          {guided.data.mapped.length > 0 && <p>Filled in from your profile: {guided.data.mapped.map((m: any) => `${humanize(m.property)} (${m.from.charAt(0).toLowerCase()}${m.from.slice(1)})`).join(' · ')}</p>}
+          {guided.data.unsupported.length > 0 && <p className="muted">This tool has no field for: {guided.data.unsupported.join(', ')}</p>}
         </div>
       )}
-      <label className="field">
-        Search arguments (JSON)
-        <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={6} />
-      </label>
-      <button className="btn primary" disabled={search.isPending || !tool} onClick={rerun}>
-        {search.isPending ? 'Searching…' : 'Search G2X'}
-      </button>
+      {guided.data && (
+        <div style={{ margin: '10px 0' }}>
+          <SchemaForm key={tool} schema={schema} value={args} onChange={setArgs} />
+        </div>
+      )}
+      <div className="row">
+        <button className="btn primary" disabled={search.isPending || !tool || missing.length > 0} onClick={rerun}>
+          {search.isPending ? 'Searching…' : 'Search G2X'}
+        </button>
+        {guided.data && (
+          <button className="btn ghost sm" onClick={() => setArgs(guided.data.arguments ?? {})}>
+            Reset to my profile
+          </button>
+        )}
+      </div>
       {search.error && <ErrorBox error={search.error} />}
       {result && (
         <div style={{ marginTop: 12 }}>
@@ -405,17 +405,18 @@ function LeadForm({ row, relateTo, onClose, onDone }: { row: any; relateTo?: { o
 
 function AdvancedTool({ tools }: { tools: any[] }) {
   const [tool, setTool] = useState(''),
-    [input, setInput] = useState('{}'),
+    [args, setArgs] = useState<Record<string, unknown>>({}),
     [result, setResult] = useState<any>(null);
-  const research = useMutation({ mutationFn: () => api.post('/api/g2x/research', { tool, arguments: JSON.parse(input), acknowledgeIndividualUse: true }), onSuccess: setResult });
+  const research = useMutation({ mutationFn: () => api.post('/api/g2x/research', { tool, arguments: cleanArguments(args) ?? {}, acknowledgeIndividualUse: true }), onSuccess: setResult });
   const selected = tools.find((t) => t.name === tool);
+  const missing = selected ? missingRequired(fieldsOf(selected.inputSchema), args) : [];
   return (
     <Card title="Advanced: run any read-only G2X tool">
       <details>
         <summary>How to use</summary>
         <ol>
           <li>Choose a read-only research tool. The list depends on your G2X account.</li>
-          <li>Enter a JSON object matching the tool's input schema, then run it. Results are not imported or saved for teammates.</li>
+          <li>Fill in the fields the tool asks for (required ones are marked *), then run it. Results are not imported or saved for teammates.</li>
         </ol>
         <p>
           <a href="https://g2x.com/mcp/tools" target="_blank" rel="noreferrer">
@@ -431,7 +432,7 @@ function AdvancedTool({ tools }: { tools: any[] }) {
           onChange={(e) => {
             setTool(e.target.value);
             setResult(null);
-            setInput('{}');
+            setArgs({});
           }}
         >
           <option value="">Select a tool</option>
@@ -447,15 +448,10 @@ function AdvancedTool({ tools }: { tools: any[] }) {
       {selected && (
         <>
           <p>{selected.description}</p>
-          <details>
-            <summary>Required tool input schema</summary>
-            <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(selected.inputSchema, null, 2)}</pre>
-          </details>
-          <label className="field">
-            Research inputs as JSON
-            <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={8} />
-          </label>
-          <button className="btn primary" disabled={research.isPending} onClick={() => research.mutate()}>
+          <div style={{ margin: '10px 0' }}>
+            <SchemaForm key={tool} schema={selected.inputSchema} value={args} onChange={setArgs} />
+          </div>
+          <button className="btn primary" disabled={research.isPending || missing.length > 0} onClick={() => research.mutate()}>
             Run individual research
           </button>
         </>

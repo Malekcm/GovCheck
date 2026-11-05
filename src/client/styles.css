@@ -365,6 +365,10 @@ table.data tr.signal-row td:first-child { box-shadow: inset 3px 0 0 var(--signal
   body { background: #fff; font-size: 11px; }
   .card { box-shadow: none; break-inside: avoid; }
 }
+.suggest-pop { position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 30; max-height: 280px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 4px; display: grid; }
+.suggest-pop button { text-align: left; padding: 5px 8px; border: 0; background: transparent; border-radius: var(--radius-sm); cursor: pointer; color: var(--text); font-size: 12px; }
+.suggest-pop button.on { background: var(--surface-3); }
+.chip:disabled { opacity: 0.45; cursor: not-allowed; }
 .menu { position: relative; display: inline-block; }
 .menu > summary { list-style: none; }
 .menu > summary::-webkit-details-marker { display: none; }

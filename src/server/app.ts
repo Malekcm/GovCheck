@@ -21,6 +21,7 @@ import { registerSourceRoutes } from './routes/sources';
 import { registerSearchRoutes } from './routes/search';
 import { registerTangoRoutes } from './routes/tango';
 import { registerTrackingRoutes } from './routes/tracking';
+import { registerReferenceRoutes } from './routes/reference';
 
 export interface AppDeps {
   db: Db;
@@ -160,6 +161,7 @@ export function createApp(deps: AppDeps): Hono {
   // BD routes first: static paths like /api/opportunities/export.xlsx must win over /api/opportunities/:id.
   registerBdRoutes(app, deps);
   registerTrackingRoutes(app, deps);
+  registerReferenceRoutes(app, deps);
   registerOpportunityRoutes(app, deps);
   registerIntelRoutes(app, deps);
   registerSourceRoutes(app, deps);

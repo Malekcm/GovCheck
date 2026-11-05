@@ -294,6 +294,35 @@ export const COVERAGE_SIGNAL_LABELS: Record<string, { label: string; description
   NO_FORECAST_LINK: { label: 'No forecast link', description: 'A strong-fit solicitation with no linked forecast record.' },
 };
 
+/** The 20 NAICS 2022 sectors (two-digit level). Manufacturing, Retail and Transportation span several codes. */
+export const NAICS_SECTORS: { codes: string[]; title: string }[] = [
+  { codes: ['11'], title: 'Agriculture, Forestry, Fishing and Hunting' },
+  { codes: ['21'], title: 'Mining, Quarrying, and Oil and Gas Extraction' },
+  { codes: ['22'], title: 'Utilities' },
+  { codes: ['23'], title: 'Construction' },
+  { codes: ['31', '32', '33'], title: 'Manufacturing' },
+  { codes: ['42'], title: 'Wholesale Trade' },
+  { codes: ['44', '45'], title: 'Retail Trade' },
+  { codes: ['48', '49'], title: 'Transportation and Warehousing' },
+  { codes: ['51'], title: 'Information' },
+  { codes: ['52'], title: 'Finance and Insurance' },
+  { codes: ['53'], title: 'Real Estate and Rental and Leasing' },
+  { codes: ['54'], title: 'Professional, Scientific, and Technical Services' },
+  { codes: ['55'], title: 'Management of Companies and Enterprises' },
+  { codes: ['56'], title: 'Administrative and Support and Waste Management and Remediation Services' },
+  { codes: ['61'], title: 'Educational Services' },
+  { codes: ['62'], title: 'Health Care and Social Assistance' },
+  { codes: ['71'], title: 'Arts, Entertainment, and Recreation' },
+  { codes: ['72'], title: 'Accommodation and Food Services' },
+  { codes: ['81'], title: 'Other Services (except Public Administration)' },
+  { codes: ['92'], title: 'Public Administration' },
+];
+
+export function naicsSector(code: string): string | null {
+  const two = code.slice(0, 2);
+  return NAICS_SECTORS.find((s) => s.codes.includes(two))?.title ?? null;
+}
+
 export const SET_ASIDE_LABELS: Record<string, string> = {
   SBA: 'Total Small Business',
   SBP: 'Partial Small Business',
