@@ -23,6 +23,9 @@ const ID_TABLES: { table: string; guard?: string }[] = [
   { table: 'research_signals' },
   { table: 'user_field_overrides', guard: 'NOT EXISTS (SELECT 1 FROM user_field_overrides x WHERE x.opportunity_id = $1 AND x.field = t.field)' },
   { table: 'opportunity_capture_history' },
+  { table: 'opportunity_tracking_history' },
+  { table: 'opportunity_discovery', guard: 'NOT EXISTS (SELECT 1 FROM opportunity_discovery x WHERE x.opportunity_id = $1 AND x.provider = t.provider AND x.provider_record_key = t.provider_record_key)' },
+  { table: 'discovery_match_decisions', guard: 'NOT EXISTS (SELECT 1 FROM discovery_match_decisions x WHERE x.opportunity_id = $1 AND x.provider = t.provider AND x.provider_record_key = t.provider_record_key)' },
 ];
 
 /** Composite-key tables: [table, key columns other than opportunity_id]. */
@@ -34,6 +37,8 @@ const KEY_TABLES: [string, string[]][] = [
   ['user_tags', ['tag']],
   // One capture record per profile: moved only when the surviving profile has none.
   ['opportunity_capture', []],
+  // One tracking record per profile: same rule. A tracked secondary keeps the primary tracked (below).
+  ['opportunity_tracking', []],
 ];
 
 const keyMatch = (keys: string[]) => (keys.length ? keys.map((k) => `x.${k} = t.${k}`).join(' AND ') : 'true');
@@ -74,6 +79,14 @@ export async function mergeOpportunities(db: Db, primaryId: string, secondaryId:
     if (primaryHasDecision && decisions.some((d) => d.is_current))
       await tx.query('UPDATE user_opportunity_decisions SET is_current = false WHERE id = ANY($1::uuid[])', [decisions.filter((d) => d.is_current).map((d) => d.id)]);
 
+    // Merging never silently untracks: if either profile was tracked, the survivor is tracked.
+    const tracking = await tx.query<{ opportunity_id: string; tracked: boolean }>('SELECT opportunity_id, tracked FROM opportunity_tracking WHERE opportunity_id = ANY($1::uuid[])', [[primaryId, secondaryId]]);
+    const secTracked = tracking.find((t) => t.opportunity_id === secondaryId)?.tracked;
+    const priTracking = tracking.find((t) => t.opportunity_id === primaryId);
+    if (secTracked && priTracking && !priTracking.tracked) {
+      await tx.query('UPDATE opportunity_tracking SET tracked = true, updated_at = now(), version = version + 1 WHERE opportunity_id = $1', [primaryId]);
+      moved.tracking_promoted = [primaryId];
+    }
     await tx.query('UPDATE opportunities SET merged_into_id = $1, updated_at = now() WHERE id = $2', [primaryId, secondaryId]);
     const rel = await upsertRelationship(tx, primaryId, secondaryId, 'merged', 1, 'manual', [note ?? 'Merged by user'], 'user');
     await tx.query(`UPDATE opportunity_relationships SET status = 'confirmed', decided_at = now() WHERE status = 'suggested' AND ((from_opportunity_id = $1 AND to_opportunity_id = $2) OR (from_opportunity_id = $2 AND to_opportunity_id = $1))`, [primaryId, secondaryId]);
@@ -109,6 +122,7 @@ export async function undoMerge(db: Db, mergeId: string, priorities: Map<string,
     for (const d of (m.moved.user_opportunity_decisions ?? []) as { id: string; wasCurrent: boolean }[]) {
       await tx.query('UPDATE user_opportunity_decisions SET opportunity_id = $1, is_current = $2 WHERE id = $3', [m.secondary_id, d.wasCurrent, d.id]);
     }
+    if ((m.moved.tracking_promoted ?? []).length) await tx.query('UPDATE opportunity_tracking SET tracked = false, updated_at = now(), version = version + 1 WHERE opportunity_id = $1', [m.primary_id]);
     await tx.query('UPDATE opportunities SET merged_into_id = NULL, updated_at = now() WHERE id = $1', [m.secondary_id]);
     if (m.relationship_id) await tx.query(`UPDATE opportunity_relationships SET status = 'rejected', decided_at = now() WHERE id = $1`, [m.relationship_id]);
     await tx.query('UPDATE merge_decisions SET undone_at = now() WHERE id = $1', [mergeId]);

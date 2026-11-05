@@ -115,6 +115,7 @@ const DATA_TABLES = [
   'user_notes',
   'user_tags',
   'opportunity_capture',
+  'opportunity_tracking',
 ];
 
 const q = (id: string) => `"${id.replace(/"/g, '""')}"`;

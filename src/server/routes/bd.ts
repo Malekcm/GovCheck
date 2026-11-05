@@ -131,6 +131,7 @@ export function registerBdRoutes(app: Hono, deps: AppDeps) {
       `SELECT ${LIST_COLUMNS}, cap.priority AS capture_priority, cap.win_probability, cap.proposal_deadline, cap.bid_decision, cap.partners, cap.updated_at AS capture_updated_at
        FROM opportunities o ${DECISION_JOIN}
        WHERE o.merged_into_id IS NULL AND (cap.opportunity_id IS NOT NULL OR d.decision = ANY($1::text[]) OR EXISTS (SELECT 1 FROM opportunity_assignments a WHERE a.opportunity_id=o.id AND a.active))
+         AND NOT EXISTS (SELECT 1 FROM opportunity_tracking ut WHERE ut.opportunity_id = o.id AND NOT ut.tracked)
          AND ($2::boolean OR cap.pursuit_stage IS NULL OR cap.pursuit_stage = ANY($3::text[]))
        ORDER BY cap.next_action_date ASC NULLS LAST, COALESCE(cap.proposal_deadline, o.response_deadline) ASC NULLS LAST, o.priority_score DESC NULLS LAST
        LIMIT 1000`,

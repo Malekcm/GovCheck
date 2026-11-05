@@ -59,6 +59,9 @@ export const COLUMNS: Column[] = [
         </div>
         <div className="opp-sub row" style={{ gap: 6 }}>
           <ClassBadge cls={o.opportunity_class} />
+          {o.verification_status === 'research_lead' && <span className="badge warn" title="User-authored research lead. Not government verified; no official solicitation confirmed.">Research lead · unverified</span>}
+          {o.tracked && <span className="badge good">Tracked</span>}
+          {o.pending_review && <span className="badge info" title="A possible duplicate or same-procurement match awaits review">Match review</span>}
           {o.solicitation_number && <span className="mono">{o.solicitation_number}</span>}
           {o.incumbent_name && <span>Incumbent: {o.incumbent_name}</span>}
         </div>
@@ -95,7 +98,16 @@ export const COLUMNS: Column[] = [
   },
   { key: 'setaside', label: 'Set-aside', render: (o) => <span className="small">{setAsideLabel(o.set_aside_code, o.set_aside)}</span> },
   { key: 'deadline', label: 'Deadline', sort: 'deadline', render: (o) => <Deadline value={o.response_deadline} /> },
-  { key: 'source', label: 'Source', render: (o) => <SourceBadges ids={o.connector_ids} /> },
+  {
+    key: 'source',
+    label: 'Sources',
+    render: (o) => (
+      <div className="stack" style={{ gap: 2 }}>
+        <SourceBadges ids={[...(o.connector_ids ?? []), ...(o.discovery_providers ?? []).filter((p: string) => !(o.connector_ids ?? []).includes(p))]} />
+        {(o.connector_ids?.length ?? 0) > 1 && <span className="small muted">{o.connector_ids.length} sources</span>}
+      </div>
+    ),
+  },
   { key: 'perfEnd', label: 'PoP end', sort: 'expiring', render: (o) => <span className="small nowrap">{o.performance_end ? date(o.performance_end) : '—'}</span> },
   { key: 'completeness', label: 'Data', sort: 'completeness', render: (o) => <span className="num small" title="Data completeness">{o.data_completeness ?? '—'}%</span> },
   { key: 'updated', label: 'Updated', sort: 'updated', render: (o) => <span className="small muted nowrap">{relative(o.last_changed_at)}</span> },

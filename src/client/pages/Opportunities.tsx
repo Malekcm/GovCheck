@@ -12,6 +12,7 @@ const FILTER_KEYS = [
   'valueMin', 'valueMax', 'postedFrom', 'postedTo', 'deadlineFrom', 'deadlineTo', 'performanceFrom', 'performanceTo', 'dueWithinDays', 'changedWithinDays', 'state',
   'recompete', 'hasIncumbent', 'hasDocuments', 'newSinceVisit', 'openOnly', 'includeGrants', 'agencyId', 'officeId', 'vendorId', 'maxFit',
   'minAttractiveness', 'minConfidence', 'expiringWithinMonths', 'incumbent', 'noticeType', 'changeType', 'captureStage', 'owner', 'tag', 'status',
+  'firstDiscovered', 'sourceCount', 'minSources', 'verification', 'tracked', 'pendingReview', 'recentlyEnriched', 'newFromOtherSource', 'enrichedWithinDays',
 ] as const;
 
 const CHANGE_TYPES: [string, string][] = [
@@ -30,16 +31,6 @@ const CHANGE_TYPES: [string, string][] = [
   ['INCUMBENT_IDENTIFIED', 'Incumbent identified'],
 ];
 
-const SOURCES = [
-  ['sam_opportunities', 'SAM API'],
-  ['sam_bulk', 'SAM bulk'],
-  ['gsa_forecast', 'GSA forecast'],
-  ['dhs_apfs', 'DHS forecast (APFS)'],
-  ['sba_subnet', 'SUBNet'],
-  ['grants_gov', 'Grants.gov'],
-  ['usaspending', 'USAspending'],
-  ['sam_awards', 'SAM awards'],
-];
 
 function MultiSelect({ label, options, value, onChange }: { label: string; options: [string, string][]; value: string[]; onChange: (v: string[]) => void }) {
   return (
@@ -63,6 +54,9 @@ export function OpportunitiesPage() {
   const [showFilters, setShowFilters] = useState(false);
   const queueSlug = params.get('queue') ?? 'all';
   const queues = useQuery({ queryKey: ['queues'], queryFn: () => api.get<any[]>('/api/queues') });
+  // Built from the source registry (connectors + discovery providers), not a hardcoded list.
+  const registry = useQuery({ queryKey: ['source-registry'], queryFn: () => api.get<any[]>('/api/sources/registry') });
+  const sourceOptions: [string, string][] = (registry.data ?? []).map((r) => [r.id, r.label]);
   const queue = queues.data?.find((q) => q.slug === queueSlug);
 
   // Effective filters = queue preset overlaid with explicit URL params.
@@ -180,7 +174,25 @@ export function OpportunitiesPage() {
             <MultiSelect label="Class" options={[['prime', 'Prime'], ['subcontract', 'Subcontract'], ['grant', 'Grant'], ['intelligence', 'Intelligence signal']]} value={arr('opportunityClass')} onChange={(v) => set('opportunityClass', v)} />
             <MultiSelect label="Decision" options={[['none', 'Unreviewed'], ...DECISIONS.map((d) => [d, DECISION_LABELS[d]] as [string, string])]} value={arr('decision')} onChange={(v) => set('decision', v)} />
             <MultiSelect label="Eligibility" options={ELIGIBILITY_STATUSES.map((s) => [s, ELIGIBILITY_LABELS[s]])} value={arr('eligibility')} onChange={(v) => set('eligibility', v)} />
-            <MultiSelect label="Source" options={SOURCES as [string, string][]} value={arr('source')} onChange={(v) => set('source', v)} />
+            <MultiSelect label="Source" options={sourceOptions} value={arr('source')} onChange={(v) => set('source', v)} />
+            <MultiSelect label="First discovered by" options={sourceOptions} value={arr('firstDiscovered')} onChange={(v) => set('firstDiscovered', v)} />
+            <MultiSelect label="Verification" options={[['government_verified', 'Government verified'], ['research_lead', 'Research lead (needs verification)']]} value={arr('verification')} onChange={(v) => set('verification', v)} />
+            <label className="field">
+              Connected sources
+              <select value={filters.sourceCount ?? ''} onChange={(e) => set('sourceCount', e.target.value)}>
+                <option value="">Any</option>
+                <option value="single">Single source</option>
+                <option value="multi">Multi-source</option>
+              </select>
+            </label>
+            <label className="field">
+              Tracking
+              <select value={filters.tracked ?? ''} onChange={(e) => set('tracked', e.target.value)}>
+                <option value="">Tracked or not</option>
+                <option value="true">Tracked</option>
+                <option value="false">Untracked</option>
+              </select>
+            </label>
             <MultiSelect label="Set-aside" options={[['NONE', 'None'], ...Object.entries(SET_ASIDE_LABELS)]} value={arr('setAside')} onChange={(v) => set('setAside', v)} />
             <MultiSelect label="Capture stage" options={PURSUIT_STAGES.map((s) => [s, PURSUIT_STAGE_LABELS[s]])} value={arr('captureStage')} onChange={(v) => set('captureStage', v)} />
             <MultiSelect label="Changed (type)" options={CHANGE_TYPES} value={arr('changeType')} onChange={(v) => set('changeType', v)} />
@@ -212,6 +224,8 @@ export function OpportunitiesPage() {
                 ['performanceTo', 'Performance to', 'date'],
                 ['dueWithinDays', 'Due within (days)', 'number'],
                 ['changedWithinDays', 'Changed within (days)', 'number'],
+                ['minSources', 'Min connected sources', 'number'],
+                ['enrichedWithinDays', 'Enriched within (days)', 'number'],
               ] as const
             ).map(([k, l, t]) => (
               <label key={k} className="field">
@@ -228,6 +242,9 @@ export function OpportunitiesPage() {
                   ['hasDocuments', 'Has documents'],
                   ['newSinceVisit', 'New since last visit'],
                   ['includeGrants', 'Include grants'],
+                  ['pendingReview', 'Pending duplicate review'],
+                  ['recentlyEnriched', 'Recently enriched (new source)'],
+                  ['newFromOtherSource', 'New info from another source'],
                 ] as const
               ).map(([k, l]) => (
                 <label key={k} className="check">

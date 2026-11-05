@@ -108,6 +108,10 @@ export function registerMetaRoutes(app: Hono, deps: AppDeps) {
       'preference_weights',
       'opportunity_capture',
       'opportunity_capture_history',
+      'opportunity_tracking',
+      'opportunity_tracking_history',
+      'opportunity_discovery',
+      'discovery_match_decisions',
     ];
     const out: Record<string, unknown> = { exportedAt: new Date().toISOString(), format: 'goi-backup-v2' };
     for (const t of tables) out[t] = await db.query(`SELECT * FROM ${t}`);
@@ -118,7 +122,7 @@ export function registerMetaRoutes(app: Hono, deps: AppDeps) {
     out.opportunity_index = await db.query(
       `SELECT o.id, o.title, o.solicitation_number, o.primary_notice_id FROM opportunities o WHERE EXISTS (SELECT 1 FROM user_opportunity_decisions d WHERE d.opportunity_id = o.id) OR EXISTS (SELECT 1 FROM user_notes n WHERE n.opportunity_id = o.id)
          OR EXISTS (SELECT 1 FROM user_tags t WHERE t.opportunity_id = o.id) OR EXISTS (SELECT 1 FROM opportunity_capture k WHERE k.opportunity_id = o.id)
-         OR EXISTS (SELECT 1 FROM user_field_overrides f WHERE f.opportunity_id = o.id)`,
+         OR EXISTS (SELECT 1 FROM user_field_overrides f WHERE f.opportunity_id = o.id) OR EXISTS (SELECT 1 FROM opportunity_tracking tr WHERE tr.opportunity_id = o.id)`,
     );
     c.header('Content-Disposition', `attachment; filename="goi-backup-${new Date().toISOString().slice(0, 10)}.json"`);
     return c.json(out);

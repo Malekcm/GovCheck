@@ -191,7 +191,11 @@ export async function recomputeOpportunity(db: Db, opportunityId: string, opts: 
        (SELECT count(*)::int FROM opportunity_awards WHERE opportunity_id = $1 AND status = 'active') AS awards,
        (SELECT count(*)::int FROM opportunity_awards WHERE opportunity_id = $1 AND status = 'active' AND relationship = 'award_of') AS award_of,
        (SELECT count(*)::int FROM opportunity_requirements WHERE opportunity_id = $1 AND is_current AND category IN ('evaluation_factor')) AS eval_criteria,
-       (SELECT string_agg(DISTINCT sr.connector_id, ',') FROM opportunity_sources os JOIN source_records sr ON sr.id = os.source_record_id WHERE os.opportunity_id = $1) AS connectors,
+       (SELECT string_agg(DISTINCT c, ',') FROM (
+          SELECT sr.connector_id AS c FROM opportunity_sources os JOIN source_records sr ON sr.id = os.source_record_id WHERE os.opportunity_id = $1
+          -- The award OF this procurement is a contributing source; predecessor / possible-incumbent awards are not.
+          UNION SELECT a.connector_id FROM opportunity_awards oa JOIN awards a ON a.id = oa.award_id
+            WHERE oa.opportunity_id = $1 AND oa.relationship = 'award_of' AND oa.status = 'active' AND a.award_key NOT LIKE 'sam_notice:%') x) AS connectors,
        (SELECT count(*)::int FROM opportunity_sources WHERE opportunity_id = $1) AS sources,
        (SELECT string_agg(COALESCE(c.email, c.full_name), '|' ORDER BY COALESCE(c.email, c.full_name)) FROM opportunity_contacts oc JOIN contacts c ON c.id = oc.contact_id WHERE oc.opportunity_id = $1) AS contact_sig,
        (SELECT v.name FROM opportunity_vendors ov JOIN vendors v ON v.id = ov.vendor_id WHERE ov.opportunity_id = $1 AND ov.role IN ('confirmed_incumbent','awardee') ORDER BY ov.created_at LIMIT 1) AS confirmed_incumbent,
@@ -203,6 +207,21 @@ export async function recomputeOpportunity(db: Db, opportunityId: string, opts: 
     [opportunityId],
   );
   const connectorIds: string[] = stats.connectors ? String(stats.connectors).split(',').sort() : opp.connector_ids ?? [];
+  // Discovery attribution is separate from the authoritative source: the earliest of an explicit
+  // discovery (e.g. a G2X research result) and the first linked source record wins.
+  const firstSource = await db.one<{ connector_id: string; at: string }>(
+    `SELECT sr.connector_id, sr.first_seen_at AS at FROM opportunity_sources os JOIN source_records sr ON sr.id = os.source_record_id
+     WHERE os.opportunity_id = $1 ORDER BY sr.first_seen_at, sr.connector_id LIMIT 1`,
+    [opportunityId],
+  );
+  const firstDiscovery = await db.one<{ provider: string; at: string }>('SELECT provider, discovered_at AS at FROM opportunity_discovery WHERE opportunity_id = $1 ORDER BY discovered_at LIMIT 1', [opportunityId]);
+  const first =
+    firstDiscovery && (!firstSource || new Date(firstDiscovery.at).getTime() <= new Date(firstSource.at).getTime() || firstSource.connector_id === 'user_research_lead')
+      ? { source: firstDiscovery.provider, at: firstDiscovery.at }
+      : firstSource
+        ? { source: firstSource.connector_id, at: firstSource.at }
+        : { source: opp.first_discovered_source ?? null, at: opp.first_discovered_at ?? null };
+  const verificationStatus = connectorIds.some((c) => c !== 'user_research_lead') ? 'government_verified' : connectorIds.includes('user_research_lead') ? 'research_lead' : opp.verification_status ?? 'government_verified';
   const recompeteHint = (await db.one<{ hint: boolean }>(
     `SELECT bool_or((sr.normalized->'data'->>'recompeteHint')::boolean) AS hint FROM opportunity_sources os JOIN source_records sr ON sr.id = os.source_record_id WHERE os.opportunity_id = $1`,
     [opportunityId],
@@ -277,6 +296,9 @@ export async function recomputeOpportunity(db: Db, opportunityId: string, opts: 
     recompete_signal: isSignal || !!recompeteHint,
     source_count: stats.sources,
     connector_ids: connectorIds,
+    verification_status: verificationStatus,
+    first_discovered_source: first.source,
+    first_discovered_at: first.at,
     data_completeness: completeness.score,
     completeness_detail: completeness,
   };

@@ -6,6 +6,7 @@ import { addIdentifiers, fieldInputsFor, setContacts, setDates, setDocuments, se
 import { applyAwardFacts, linkAwardExact, linkAwardToOpportunity, linkPredecessorContracts, upsertAward } from './awards';
 import { recomputeOpportunity } from './canonical';
 import { recordEvent } from './events';
+import { suggestLeadMatches } from './discovery';
 import { linkForecastReferences, linkSource, resolveOpportunity, suggestRelationships } from './resolve';
 import { saveNormalized, storeSourceRecord, type StoredRecord } from './store';
 
@@ -124,6 +125,8 @@ async function applyOpportunityRecord(db: Db, n: NormalizedOpportunity, stored: 
     await suggestRelationships(db, oppId);
     await linkForecastReferences(db, oppId);
   }
+  // A user-authored research lead with the same solicitation number becomes a Potential Match (never auto-merged).
+  if (res.created || newlyLinked) await suggestLeadMatches(db, oppId);
   return { opportunityId: oppId, created: res.created };
 }
 

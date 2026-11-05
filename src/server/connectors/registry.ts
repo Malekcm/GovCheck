@@ -100,6 +100,13 @@ export async function ensureEngines(db: Db): Promise<void> {
       [e.id, e.name, e.notes],
     );
   }
+  // User-authored research leads are a manual source that never outranks official evidence.
+  await db.query(
+    `INSERT INTO source_connectors (id, name, source_type, access_method, enabled, priority, notes, health)
+     VALUES ('user_research_lead','Research lead (user-authored)','manual','manual',true,95,$1,'healthy')
+     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, notes = EXCLUDED.notes`,
+    ['Minimal tracking records written by a team member. Not government verified; no official solicitation confirmed.'],
+  );
 }
 
 export function builtinAdapter(id: string): SourceAdapter | undefined {
